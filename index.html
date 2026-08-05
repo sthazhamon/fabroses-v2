@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FabRoses Business System</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#b5384f">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root{ --rose:#b5384f; --rose-dark:#7d2438; --cream:#fbf4ee; --ink:#2c1f24; --line:#e6d7d0; --ok:#3f7d54; --warn:#c98a2c; }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:'Segoe UI',system-ui,sans-serif; background:var(--cream); color:var(--ink);}
+  header{background:var(--rose); color:#fff; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;}
+  header h1{font-size:1.05rem; margin:0; font-weight:600;}
+  header .who{font-size:0.75rem; opacity:0.9;}
+  header .logout{background:none; border:1px solid rgba(255,255,255,0.6); color:#fff; border-radius:6px; padding:4px 10px; font-size:0.7rem;}
+  nav{display:flex; overflow-x:auto; background:#fff; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10;}
+  nav button{flex:0 0 auto; padding:10px 12px; background:none; border:none; font-size:0.82rem; color:#8a7278; border-bottom:3px solid transparent; white-space:nowrap;}
+  nav button.active{color:var(--rose-dark); border-bottom-color:var(--rose); font-weight:600;}
+  main{padding:14px; max-width:680px; margin:0 auto;}
+  .panel{display:none;} .panel.active{display:block;}
+  label{display:block; font-size:0.82rem; margin:12px 0 4px; color:#7a5f66; font-weight:600;}
+  input, select, textarea{width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px; font-size:0.95rem; background:#fff;}
+  input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none; margin:0;}
+  input[type=number]{-moz-appearance:textfield;}
+  button.primary{margin-top:16px; width:100%; padding:13px; background:var(--rose); color:#fff; border:none; border-radius:10px; font-size:0.95rem; font-weight:600;}
+  button.secondary{margin-top:8px; width:100%; padding:11px; background:#fff; color:var(--rose-dark); border:1px solid var(--rose); border-radius:10px; font-size:0.9rem; font-weight:600;}
+  button.secondary.btn-sm, button.primary.btn-sm{width:auto; margin:3px; padding:6px 12px; font-size:0.75rem;}
+  .card{background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; margin-top:14px;}
+  .code-big{font-size:1.25rem; font-weight:700; color:var(--rose-dark); letter-spacing:0.5px;}
+  .stage-badge{display:inline-block; padding:3px 9px; border-radius:20px; background:var(--rose); color:#fff; font-size:0.75rem; font-weight:600;}
+  .stage-pills{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
+  .stage-pill{padding:5px 10px; border-radius:14px; border:1px solid var(--rose); background:#fff; color:var(--rose-dark); font-size:0.72rem; font-weight:600; cursor:pointer;}
+  .stage-pill.current{background:var(--rose); color:#fff;}
+  .row{display:flex; gap:8px;} .row > div{flex:1;}
+  table{width:100%; border-collapse:collapse; margin-top:8px; font-size:0.8rem;}
+  th, td{text-align:left; padding:7px 5px; border-bottom:1px solid var(--line);}
+  th{color:#7a5f66; font-weight:600;}
+  .kpi-grid{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px;}
+  .kpi{background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px; text-align:center;}
+  .kpi .num{font-size:1.2rem; font-weight:700; color:var(--rose-dark);}
+  .kpi .lbl{font-size:0.7rem; color:#8a7278;}
+  .muted{color:#8a7278; font-size:0.82rem;}
+  .warn-row{color:var(--warn); font-weight:600;}
+  .filter-row{display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;}
+  .filter-row button{flex:1; min-width:90px;}
+  #login-screen{display:flex; align-items:center; justify-content:center; min-height:100vh; padding:20px;}
+  #login-screen .card{width:100%; max-width:320px; text-align:center;}
+  #login-screen input{text-align:center; font-size:1.4rem; letter-spacing:4px; margin-top:8px;}
+  #app{display:none;}
+  #error-banner{background:#fdecec; color:#a33; border:1px solid #f3c6c6; padding:9px 13px; border-radius:8px; margin-bottom:12px; display:none; font-size:0.85rem;}
+  .item-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(130px,1fr)); gap:8px; margin-top:8px;}
+  .item-card{background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden;}
+  .item-card img{width:100%; height:90px; object-fit:cover; display:block; background:var(--cream);}
+  .item-card .pc-body{padding:7px;}
+  .item-card .pc-name{font-weight:600; font-size:0.78rem; margin:0 0 2px;}
+  .item-card .pc-meta{font-size:0.68rem; color:#8a7278;}
+  #qr-print-area{text-align:center;}
+  @media (max-width:420px){ .row{flex-direction:column;} header h1{font-size:0.9rem;} nav button{padding:9px 8px; font-size:0.75rem;} }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="card">
+    <h2 style="margin-top:0;">FabRoses</h2>
+    <p class="muted">Sign in with username and PIN</p>
+    <label style="text-align:left;">Username</label>
+    <input id="login-username" autocapitalize="off">
+    <label style="text-align:left;">PIN</label>
+    <input id="login-pin" type="password">
+    <button class="primary" onclick="doLogin()">Sign in</button>
+    <p id="login-error" class="muted" style="color:#a33;"></p>
+  </div>
+</div>
+
+<div id="app">
+  <header>
+    <h1>FabRoses</h1>
+    <div><span class="who" id="who-label"></span> <button class="logout" onclick="logout()">Log out</button></div>
+  </header>
+  <nav id="nav-bar"></nav>
+  <main>
+    <div id="error-banner"></div>
+
+    <section class="panel" id="panel-dashboard">
+      <h3>Dashboard</h3>
+      <div id="dash-content" class="muted">Loading...</div>
+    </section>
+
+    <section class="panel" id="panel-catalogue">
+      <h3>Catalogue / Item Master</h3>
+      <label>Type</label>
+      <select id="it-type"><option value="finished_good">Finished good</option><option value="raw_material">Raw material</option></select>
+      <label>Name</label>
+      <input id="it-name" placeholder="e.g. Peacock Applique Saree">
+      <div class="row">
+        <div><label>Category <button type="button" class="secondary btn-sm" onclick="addMasterEntry('category')">+new</button></label><select id="it-category"></select></div>
+        <div><label>Fabric <button type="button" class="secondary btn-sm" onclick="addMasterEntry('fabric')">+new</button></label><select id="it-fabric"></select></div>
+      </div>
+      <div class="row">
+        <div><label>Work type <button type="button" class="secondary btn-sm" onclick="addMasterEntry('worktype')">+new</button></label><select id="it-worktype"></select></div>
+        <div><label>Pattern <button type="button" class="secondary btn-sm" onclick="addMasterEntry('pattern')">+new</button></label><select id="it-pattern"></select></div>
+      </div>
+      <div class="row">
+        <div><label>Unit</label><select id="it-uom"><option value="piece">Piece</option><option value="metre">Metre</option></select></div>
+        <div><label>Color</label><input id="it-color"></div>
+      </div>
+      <div class="row">
+        <div><label>Price (Rs)</label><input id="it-price" type="number" step="0.01"></div>
+        <div><label>Cost (Rs)</label><input id="it-cost" type="number" step="0.01"></div>
+      </div>
+      <label>Description</label><textarea id="it-desc" rows="2"></textarea>
+      <label>Photo</label><input id="it-photo" type="file" accept="image/*">
+      <button class="primary" onclick="createItem()">Add item</button>
+      <div id="item-result"></div>
+      <div class="card"><h4 style="margin-top:0;">Items</h4>
+        <div class="filter-row">
+          <button class="secondary btn-sm" onclick="loadItems('raw_material')">Raw only</button>
+          <button class="secondary btn-sm" onclick="loadItems('finished_good')">Finished only</button>
+          <button class="secondary btn-sm" onclick="loadItems()">All</button>
+        </div>
+        <div id="item-list" class="muted">Loading...</div><div id="item-detail"></div></div>
+    </section>
+
+    <section class="panel" id="panel-sites">
+      <h3>Sites</h3>
+      <label>Name</label><input id="site-name">
+      <label>Type</label><select id="site-type"><option value="store">Store</option><option value="worker">Worker</option></select>
+      <button class="primary" onclick="createSite()">Add site</button>
+      <div id="site-result"></div>
+      <div class="card"><h4 style="margin-top:0;">All sites</h4><div id="site-list" class="muted">Loading...</div></div>
+      <div class="card"><h4 style="margin-top:0;">Stock by site</h4><div id="stock-by-site" class="muted">Loading...</div></div>
+    </section>
+
+    <section class="panel" id="panel-po">
+      <h3>Purchase Orders</h3>
+      <label>Supplier <button type="button" class="secondary btn-sm" onclick="addPartyInline('supplier','po-supplier-select')">+new</button></label>
+      <select id="po-supplier-select"></select>
+      <label>Item (raw material)</label><select id="po-item"></select>
+      <div class="row"><div><label>Quantity ordered</label><input id="po-qty" type="number" step="0.1"></div><div><label>Rate (Rs)</label><input id="po-rate" type="number" step="0.01"></div></div>
+      <label>Expected date</label><input id="po-date" type="date">
+      <button class="primary" onclick="createPO()">Place order</button>
+      <div id="po-result"></div>
+      <div class="card"><h4 style="margin-top:0;">Orders</h4><div id="po-list" class="muted">Loading...</div></div>
+    </section>
+
+    <section class="panel" id="panel-workorders">
+      <h3>Work Orders</h3>
+      <div class="card"><h4 style="margin-top:0;">Backlog — customer orders with no work order yet</h4><div id="wo-backlog" class="muted">Loading...</div></div>
+      <label>Description</label><textarea id="wo-desc" rows="2"></textarea>
+      <label>Work instructions</label><textarea id="wo-instructions" rows="2"></textarea>
+      <label>Worker site (required)</label><select id="wo-worker"></select>
+      <label>Intended item (what this replenishes, optional)</label><select id="wo-intended"></select>
+      <div class="row"><div><label>Target quantity</label><input id="wo-target" type="number" step="1" value="1"></div><div><label>Priority</label><select id="wo-priority"><option value="normal">Normal</option><option value="urgent">Urgent</option></select></div></div>
+      <label>Due date</label><input id="wo-due" type="date">
+      <button class="primary" onclick="createWO()">Create work order</button>
+      <div id="wo-result"></div>
+      <div class="card"><h4 style="margin-top:0;">All work orders</h4><div id="order-list" class="muted">Loading...</div></div>
+      <div id="wo-detail"></div>
+    </section>
+
+    <section class="panel" id="panel-dispatch">
+      <h3>Dispatch</h3>
+      <p class="muted">Everything waiting to go out. Nothing lands at the destination until it's confirmed received there.</p>
+      <div id="dispatch-queue" class="muted">Loading...</div>
+      <div id="dispatch-action-area"></div>
+      <div class="card"><h4 style="margin-top:0;">Dispatch history</h4>
+        <div class="row"><div><label>From</label><input id="disp-hist-from" type="date"></div><div><label>To</label><input id="disp-hist-to" type="date"></div></div>
+        <button class="secondary" onclick="loadDispatchHistory()">Filter</button>
+        <div id="dispatch-history" class="muted">Loading...</div></div>
+    </section>
+
+    <section class="panel" id="panel-receive">
+      <h3>Receive</h3>
+      <p class="muted">Confirm what's actually arrived, or return raw material from a worker.</p>
+      <div id="receive-queue" class="muted">Loading...</div>
+      <div class="card"><h4 style="margin-top:0;">Return raw material</h4>
+        <label>Scan or enter the lot ID</label><input id="return-lot-id" placeholder="LOT-000001">
+        <button class="secondary" onclick="lookupLotReturns()">Look up</button>
+        <div id="return-options"></div>
+      </div>
+      <div class="card"><h4 style="margin-top:0;">Receive history</h4><div id="receive-history" class="muted">Loading...</div></div>
+    </section>
+
+    <section class="panel" id="panel-co">
+      <h3>Customer Orders</h3>
+      <label>Customer <button type="button" class="secondary btn-sm" onclick="addPartyInline('customer','co-customer-select')">+new</button></label>
+      <select id="co-customer-select" onchange="autofillCustomerPhone()"></select>
+      <label>Phone</label><input id="co-phone">
+      <label>Item (leave blank for fully custom)</label><select id="co-item"></select>
+      <label>Or describe custom request</label><textarea id="co-desc" rows="2"></textarea>
+      <div class="row"><div><label>Quantity</label><input id="co-qty" type="number" step="1" value="1"></div><div><label>Tax %</label><input id="co-tax" type="number" step="0.1" value="0"></div></div>
+      <label>Promised delivery date</label><input id="co-promised" type="date">
+      <button class="primary" onclick="createCO()">Log order</button>
+      <div id="co-result"></div>
+      <div class="card"><h4 style="margin-top:0;">All customer orders</h4><div id="co-list" class="muted">Loading...</div></div>
+      <div id="co-detail"></div>
+    </section>
+
+    <section class="panel" id="panel-sales">
+      <h3>Sales</h3>
+      <label>Item (optional)</label><select id="s-item"></select>
+      <label>Scan/enter exact lot to override FIFO (optional)</label><input id="s-lot" placeholder="LOT-000001">
+      <div class="row"><div><label>Quantity</label><input id="s-qty" type="number" step="1" value="1"></div><div><label>Sale price (Rs, pre-tax)</label><input id="s-price" type="number" step="0.01"></div></div>
+      <label>Tax %</label><input id="s-tax" type="number" step="0.1" value="0">
+      <label>Description</label><input id="s-desc">
+      <label>Customer or reseller <button type="button" class="secondary btn-sm" onclick="addPartyInline('customer','s-customer-select')">+new customer</button></label>
+      <select id="s-customer-select"><option value="">-- none / cash sale --</option></select>
+      <button class="primary" onclick="createSale()">Record sale</button>
+      <div id="sale-result"></div>
+      <div class="card"><h4 style="margin-top:0;">Refunds</h4>
+        <label>Sale <button type="button" class="secondary btn-sm" onclick="loadSalesForRefund()">Refresh list</button></label>
+        <select id="ref-sale-select"></select>
+        <label>Amount</label><input id="ref-amount" type="number" step="0.01">
+        <label>Reason</label><input id="ref-reason">
+        <button class="secondary" onclick="createRefund()">Record refund</button><div id="refund-msg"></div></div>
+      <div class="card"><h4 style="margin-top:0;">Recent sales</h4><div id="sales-list" class="muted">Loading...</div></div>
+    </section>
+
+    <section class="panel" id="panel-purchases">
+      <h3>Supplier Bills</h3>
+      <p class="muted">Enter a bill against a received PO, or a standalone cash purchase.</p>
+      <label>Type</label><select id="sb-type" onchange="toggleSupplierBillType()"><option value="po">Against a received Purchase Order</option><option value="cash">Cash purchase (no PO)</option></select>
+      <div id="sb-po-wrap"><label>Purchase order (received, unbilled)</label><select id="sb-po"></select></div>
+      <label>Supplier <button type="button" class="secondary btn-sm" onclick="addPartyInline('supplier','sb-supplier-select')">+new</button></label>
+      <select id="sb-supplier-select"></select>
+      <div class="row"><div><label>Bill number</label><input id="sb-number"></div><div><label>Amount</label><input id="sb-amount" type="number" step="0.01"></div></div>
+      <label>Description</label><input id="sb-desc">
+      <button class="primary" onclick="createSupplierBill()">Record bill</button>
+      <div id="sb-result"></div>
+      <div class="card"><h4 style="margin-top:0;">Recent bills</h4><div id="sb-list" class="muted">Loading...</div></div>
+    </section>
+
+    <section class="panel" id="panel-expenses">
+      <h3>Expenses</h3>
+      <label>Category <button type="button" class="secondary btn-sm" onclick="addExpenseCategoryInline()">+new</button></label>
+      <select id="e-category-select"></select>
+      <label>Description</label><input id="e-desc">
+      <label>Amount</label><input id="e-amount" type="number" step="0.01">
+      <button class="primary" onclick="createExpense()">Record expense</button>
+      <div id="expense-result"></div>
+      <div class="card"><h4 style="margin-top:0;">Recent expenses</h4><div id="expenses-list" class="muted">Loading...</div></div>
+    </section>
+
+    <section class="panel" id="panel-receivable">
+      <h3>Payments Receivable</h3>
+      <label>Customer / reseller</label><select id="recv-party" onchange="loadOutstandingFor('receivable')"></select>
+      <div id="recv-bills" class="muted"></div>
+      <label>Amount received</label><input id="recv-amount" type="number" step="0.01">
+      <label>Method / reference</label><input id="recv-ref">
+      <button class="primary" onclick="submitPayment('receivable')">Record payment</button>
+      <div id="recv-result"></div>
+    </section>
+
+    <section class="panel" id="panel-payable">
+      <h3>Payments Payable</h3>
+      <label>Supplier</label><select id="pay-party" onchange="loadOutstandingFor('payable')"></select>
+      <div id="pay-bills" class="muted"></div>
+      <label>Amount paid</label><input id="pay-amount" type="number" step="0.01">
+      <label>Method / reference</label><input id="pay-ref">
+      <button class="primary" onclick="submitPayment('payable')">Record payment</button>
+      <div id="pay-result"></div>
+    </section>
+
+    <section class="panel" id="panel-workerpay">
+      <h3>Worker Payments</h3>
+      <label>Worker</label><select id="wp-party" onchange="loadOutstandingFor('worker')"></select>
+      <div id="wp-bills" class="muted"></div>
+      <label>Amount paid</label><input id="wp-amount" type="number" step="0.01">
+      <button class="primary" onclick="submitPayment('worker')">Record payment</button>
+      <div id="wp-result"></div>
+    </section>
+
+    <section class="panel" id="panel-journal">
+      <h3>General Journal</h3>
+      <p class="muted">Manual entries — opening balances, corrections, anything the other screens don't cover.</p>
+      <label>Date</label><input id="je-date" type="date">
+      <label>Debit account</label><select id="je-debit"></select>
+      <label>Credit account</label><select id="je-credit"></select>
+      <label>Amount</label><input id="je-amount" type="number" step="0.01">
+      <label>Description</label><input id="je-desc">
+      <button class="primary" onclick="createJournalEntry()">Post entry</button>
+      <div id="je-result"></div>
+    </section>
+
+    <section class="panel" id="panel-ledger">
+      <h3>Ledger &amp; P&amp;L</h3>
+      <div class="card"><h4 style="margin-top:0;">P&amp;L</h4>
+        <div class="row"><div><label>From</label><input id="pnl-from" type="date"></div><div><label>To</label><input id="pnl-to" type="date"></div></div>
+        <button class="secondary" onclick="loadPnL()">Run report</button>
+        <div id="pnl-result"></div></div>
+      <div class="card"><h4 style="margin-top:0;">Ledger — by account</h4>
+        <label>Account</label><select id="ledger-account"></select>
+        <div class="row"><div><label>From</label><input id="ledger-from" type="date"></div><div><label>To</label><input id="ledger-to" type="date"></div></div>
+        <button class="secondary" onclick="loadLedgerView()">Show entries</button>
+        <div id="ledger-result" class="muted"></div></div>
+    </section>
+
+    <section class="panel" id="panel-parties">
+      <h3>Parties</h3>
+      <p class="muted">Master data only — payments happen in their own tabs.</p>
+      <label>Name</label><input id="pty-name">
+      <label>Type</label><select id="pty-type" onchange="toggleResellerFields()"><option value="customer">Customer</option><option value="reseller">Reseller</option><option value="supplier">Supplier</option><option value="other">Other</option></select>
+      <div id="reseller-fields" style="display:none;">
+        <label>Discount tier (1-3)</label><select id="pty-tier"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+        <label>Target amount</label><input id="pty-target" type="number" step="0.01">
+        <label>Target period</label><select id="pty-period"><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select>
+        <label>Bonus rule</label><input id="pty-bonus">
+      </div>
+      <label>Opening balance</label><input id="pty-opening" type="number" step="0.01" value="0">
+      <button class="primary" onclick="createParty()">Add party</button>
+      <div id="party-result"></div>
+      <div class="card"><h4 style="margin-top:0;">All parties</h4><div id="parties-list" class="muted">Loading...</div></div>
+    </section>
+
+    <section class="panel" id="panel-users">
+      <h3>Users</h3>
+      <label>Name</label><input id="u-name">
+      <label>Username</label><input id="u-username">
+      <label>PIN (6+ chars)</label><input id="u-pin">
+      <label>Role</label><select id="u-role" onchange="toggleWorkerSiteOption()"><option value="admin">Admin</option><option value="accountant">Accountant</option><option value="worker">Worker</option><option value="dispatch">Dispatch</option><option value="reseller">Reseller</option></select>
+      <div id="u-worker-site-wrap"><label><input type="checkbox" id="u-create-site" checked style="width:auto;"> Create their own worker site</label></div>
+      <button class="primary" onclick="createUser()">Create login</button>
+      <div id="user-result"></div>
+      <div class="card"><h4 style="margin-top:0;">Existing logins</h4><div id="users-list" class="muted">Loading...</div></div>
+    </section>
+
+  </main>
+</div>
+<div id="qr-print-area" style="display:none;"></div>
+
+<script>
+const API = "/api";
+const STAGES = ["Order Placed","Cutting","Handwork","Stitching","Quality Check","Correction Required","Packed","Dispatched","Delivered"];
+
+const TABS = [
+  { id: "dashboard", label: "Dashboard", roles: ["admin","accountant"] },
+  { id: "catalogue", label: "Catalogue", roles: ["admin","accountant","dispatch"] },
+  { id: "sites", label: "Sites", roles: ["admin","accountant","dispatch"] },
+  { id: "po", label: "Purchase Orders", roles: ["admin","accountant","dispatch"] },
+  { id: "workorders", label: "Work Orders", roles: ["admin","accountant","dispatch","worker"] },
+  { id: "dispatch", label: "Dispatch", roles: ["admin","accountant","dispatch","worker"] },
+  { id: "receive", label: "Receive", roles: ["admin","accountant","dispatch"] },
+  { id: "co", label: "Customer Orders", roles: ["admin","accountant","dispatch"] },
+  { id: "sales", label: "Sales", roles: ["admin","accountant","dispatch"] },
+  { id: "purchases", label: "Supplier Bills", roles: ["admin","accountant"] },
+  { id: "expenses", label: "Expenses", roles: ["admin","accountant"] },
+  { id: "receivable", label: "Receivable", roles: ["admin","accountant"] },
+  { id: "payable", label: "Payable", roles: ["admin","accountant"] },
+  { id: "workerpay", label: "Worker Pay", roles: ["admin","accountant"] },
+  { id: "journal", label: "Journal", roles: ["admin","accountant"] },
+  { id: "ledger", label: "Ledger / P&L", roles: ["admin","accountant"] },
+  { id: "parties", label: "Parties", roles: ["admin","accountant"] },
+  { id: "users", label: "Users", roles: ["admin"] },
+];
+
+function getSession(){ const token=localStorage.getItem("fr_token"); const role=localStorage.getItem("fr_role"); const name=localStorage.getItem("fr_name"); const siteId=localStorage.getItem("fr_site"); return token?{token,role,name,siteId}:null; }
+async function apiFetch(path, opts){ opts=opts||{}; const s=getSession(); const headers=Object.assign({}, opts.headers||{}); if(s) headers["Authorization"]="Bearer "+s.token; const res=await fetch(API+path, Object.assign({},opts,{headers:headers})); if(res.status===401){logout(); throw new Error("Session expired");} const json=await res.json(); if(!res.ok) throw new Error(json.error||"Request failed"); return json; }
+function showError(msg){ const el=document.getElementById("error-banner"); el.textContent=msg; el.style.display="block"; setTimeout(function(){el.style.display="none";},6000); }
+
+async function doLogin(){
+  const username=document.getElementById("login-username").value.trim();
+  const pin=document.getElementById("login-pin").value.trim();
+  const errEl=document.getElementById("login-error"); errEl.textContent="";
+  if(!username||!pin){errEl.textContent="Enter both fields.";return;}
+  try{
+    const res=await fetch(API+"/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:username,pin:pin})}).then(function(r){return r.json();});
+    if(res.error){errEl.textContent=res.error;return;}
+    localStorage.setItem("fr_token",res.token); localStorage.setItem("fr_role",res.role); localStorage.setItem("fr_name",res.name); localStorage.setItem("fr_site",res.site_id||"");
+    boot();
+  }catch(e){errEl.textContent="Could not sign in.";}
+}
+function logout(){ localStorage.removeItem("fr_token"); localStorage.removeItem("fr_role"); localStorage.removeItem("fr_name"); localStorage.removeItem("fr_site"); document.getElementById("app").style.display="none"; document.getElementById("login-screen").style.display="flex"; }
+
+function switchTab(tabId){
+  document.querySelectorAll(".tab-btn").forEach(function(b){b.classList.toggle("active", b.dataset.tab===tabId);});
+  document.querySelectorAll(".panel").forEach(function(p){p.classList.toggle("active", p.id==="panel-"+tabId);});
+  loadTabData(tabId);
+}
+function boot(){
+  const s=getSession(); if(!s) return;
+  document.getElementById("login-screen").style.display="none";
+  document.getElementById("app").style.display="block";
+  document.getElementById("who-label").textContent=s.name+" - "+s.role;
+  const nav=document.getElementById("nav-bar"); nav.innerHTML="";
+  const visible=TABS.filter(function(t){return t.roles.indexOf(s.role)!==-1;});
+  visible.forEach(function(t,i){
+    const btn=document.createElement("button"); btn.className="tab-btn"+(i===0?" active":""); btn.dataset.tab=t.id; btn.textContent=t.label;
+    btn.onclick=function(){switchTab(t.id);}; nav.appendChild(btn);
+  });
+  document.querySelectorAll(".panel").forEach(function(p){p.classList.remove("active");});
+  if(visible.length){ document.getElementById("panel-"+visible[0].id).classList.add("active"); loadTabData(visible[0].id); }
+}
+function loadTabData(tabId){
+  try{
+    if(tabId==="dashboard") loadDashboard();
+    if(tabId==="catalogue"){ populateMasterDropdowns(); loadItems(); }
+    if(tabId==="sites"){ loadSites(); loadStockBySite(); }
+    if(tabId==="po"){ populatePartyDropdown("po-supplier-select","supplier"); populateItemDropdown("po-item","raw_material"); loadPOs(); }
+    if(tabId==="workorders"){ loadBacklog(); populateSiteDropdown("wo-worker","worker"); populateItemDropdown("wo-intended"); loadWOs(); }
+    if(tabId==="dispatch"){ loadDispatchQueue(); loadDispatchHistory(); }
+    if(tabId==="receive"){ loadReceiveQueue(); loadReceiveHistory(); }
+    if(tabId==="co"){ populatePartyDropdown("co-customer-select","customer"); populateItemDropdown("co-item","finished_good"); loadCOs(); }
+    if(tabId==="sales"){ populateItemDropdown("s-item"); populateCustomerOrResellerDropdown("s-customer-select"); loadSalesForRefund(); loadSales(); }
+    if(tabId==="purchases"){ populatePartyDropdown("sb-supplier-select","supplier"); loadUnbilledPOs(); loadSupplierBills(); }
+    if(tabId==="expenses"){ populateExpenseCategoryDropdown(); loadExpenses(); }
+    if(tabId==="receivable") populatePartyDropdown("recv-party","customer",false,true);
+    if(tabId==="payable") populatePartyDropdown("pay-party","supplier");
+    if(tabId==="workerpay") populatePartyDropdown("wp-party","worker");
+    if(tabId==="journal") populateAccountDropdowns();
+    if(tabId==="ledger"){ populateAccountDropdown("ledger-account"); loadPnL(); }
+    if(tabId==="parties") loadParties();
+    if(tabId==="users") loadUsers();
+  }catch(e){showError(e.message);}
+}
+
+// ---------------- Shared dropdown helpers ----------------
+async function populateItemDropdown(selectId, typeFilter){
+  const q = typeFilter ? "?item_type="+typeFilter : "";
+  const list = await apiFetch("/items"+q);
+  const sel = document.getElementById(selectId);
+  sel.innerHTML = '<option value="">-- none --</option>' + list.map(function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+' - stock:'+i.total_stock+'</option>';}).join("");
+}
+async function populateSiteDropdown(selectId, typeFilter){
+  const list = await apiFetch("/sites");
+  const filtered = typeFilter ? list.filter(function(s){return s.site_type===typeFilter;}) : list;
+  document.getElementById(selectId).innerHTML = filtered.map(function(s){return '<option value="'+s.id+'">'+s.name+'</option>';}).join("");
+}
+let allPartiesCache = [];
+async function populatePartyDropdown(selectId, typeFilter, includeNoneCash, keepValue){
+  allPartiesCache = await apiFetch("/parties");
+  const filtered = typeFilter ? allPartiesCache.filter(function(p){return p.type===typeFilter;}) : allPartiesCache;
+  const sel = document.getElementById(selectId);
+  const current = keepValue ? sel.value : null;
+  sel.innerHTML = (includeNoneCash?'<option value="">-- none / cash --</option>':'') + filtered.map(function(p){return '<option value="'+p.id+'" data-phone="'+(p.phone||"")+'">'+p.name+' (Rs '+p.balance+')</option>';}).join("");
+  if(current) sel.value = current;
+}
+async function addPartyInline(type, selectId){
+  const name = prompt("Name for this new "+type+":"); if(!name) return;
+  try{
+    const res = await apiFetch("/parties",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name,type:type})});
+    await populatePartyDropdown(selectId, type);
+    document.getElementById(selectId).value = res.id;
+  }catch(e){showError(e.message);}
+}
+async function populateCustomerOrResellerDropdown(selectId){
+  allPartiesCache = await apiFetch("/parties");
+  const filtered = allPartiesCache.filter(function(p){return p.type==="customer"||p.type==="reseller";});
+  document.getElementById(selectId).innerHTML = '<option value="">-- none / cash sale --</option>' +
+    filtered.map(function(p){return '<option value="'+p.id+'" data-phone="'+(p.phone||"")+'" data-type="'+p.type+'">'+p.name+' ('+p.type+', Rs '+p.balance+')</option>';}).join("");
+}
+function autofillCustomerPhone(){
+  const sel = document.getElementById("co-customer-select");
+  const opt = sel.options[sel.selectedIndex];
+  const phoneField = document.getElementById("co-phone");
+  if(opt && opt.dataset.phone && !phoneField.value) phoneField.value = opt.dataset.phone;
+}
+const MASTER_ENDPOINTS = { category:{api:"/item-categories",sel:"it-category"}, fabric:{api:"/item-fabrics",sel:"it-fabric"}, worktype:{api:"/item-worktypes",sel:"it-worktype"}, pattern:{api:"/item-patterns",sel:"it-pattern"} };
+async function populateMasterDropdowns(){
+  for(const key in MASTER_ENDPOINTS){
+    const cfg=MASTER_ENDPOINTS[key];
+    const list=await apiFetch(cfg.api);
+    document.getElementById(cfg.sel).innerHTML='<option value="">-- none --</option>'+list.map(function(x){return '<option value="'+x.id+'">'+x.name+' ('+x.code+')</option>';}).join("");
+  }
+}
+async function addMasterEntry(type){
+  const name=prompt("Name for this new "+type+":"); if(!name) return;
+  const cfg=MASTER_ENDPOINTS[type];
+  try{ const res=await apiFetch(cfg.api,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name})}); await populateMasterDropdowns(); document.getElementById(cfg.sel).value=res.id; }catch(e){showError(e.message);}
+}
+async function populateExpenseCategoryDropdown(){
+  const list = await apiFetch("/expense-categories");
+  document.getElementById("e-category-select").innerHTML = list.map(function(c){return '<option value="'+c.id+'">'+c.name+'</option>';}).join("");
+}
+async function addExpenseCategoryInline(){
+  const name = prompt("New expense category name:"); if(!name) return;
+  try{ const res = await apiFetch("/expense-categories",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name})}); await populateExpenseCategoryDropdown(); document.getElementById("e-category-select").value = res.id; }catch(e){showError(e.message);}
+}
+async function populateAccountDropdown(selectId){
+  const list = await apiFetch("/accounts");
+  document.getElementById(selectId).innerHTML = list.map(function(a){return '<option value="'+a.id+'">'+(a.code||"")+' '+a.name+(a.party_name?" — "+a.party_name:"")+'</option>';}).join("");
+}
+async function populateAccountDropdowns(){ await populateAccountDropdown("je-debit"); await populateAccountDropdown("je-credit"); }
+
+// ---------------- Dashboard ----------------
+async function loadDashboard(){
+  try{
+    const pnl = await apiFetch("/reports/pnl");
+    document.getElementById("dash-content").innerHTML =
+      '<div class="kpi-grid">'+
+        '<div class="kpi"><div class="num">Rs '+pnl.net_revenue+'</div><div class="lbl">Net revenue</div></div>'+
+        '<div class="kpi"><div class="num">Rs '+pnl.net_profit+'</div><div class="lbl">Net profit</div></div>'+
+      '</div><p class="muted">All-time</p>';
+  }catch(e){ document.getElementById("dash-content").textContent = e.message; }
+}
+
+// ---------------- Catalogue / QR ----------------
+function printQR(text, label){
+  const area = document.getElementById("qr-print-area");
+  area.innerHTML = "";
+  const div = document.createElement("div"); area.appendChild(div);
+  new QRCode(div, {text:text, width:220, height:220});
+  setTimeout(function(){
+    area.innerHTML += "<p style='font-weight:600;margin-top:8px;'>"+label+"</p>";
+    area.style.display="block";
+    const w = window.open("", "_blank");
+    w.document.write("<html><body onload='window.print()'>"+area.innerHTML+"</body></html>");
+    w.document.close();
+    area.style.display="none";
+  }, 300);
+}
+async function createItem(){
+  try{
+    const item_type=document.getElementById("it-type").value;
+    const name=document.getElementById("it-name").value.trim();
+    if(!name){alert("Name required");return;}
+    const res=await apiFetch("/items",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      item_type:item_type, name:name,
+      category_id: parseInt(document.getElementById("it-category").value)||null,
+      fabric_id: parseInt(document.getElementById("it-fabric").value)||null,
+      work_type_id: parseInt(document.getElementById("it-worktype").value)||null,
+      pattern_id: parseInt(document.getElementById("it-pattern").value)||null,
+      unit_of_measure: document.getElementById("it-uom").value,
+      color: document.getElementById("it-color").value.trim(),
+      price: parseFloat(document.getElementById("it-price").value)||null,
+      cost: parseFloat(document.getElementById("it-cost").value)||null,
+      description: document.getElementById("it-desc").value.trim(),
+    })});
+    const photoFile=document.getElementById("it-photo").files[0];
+    if(photoFile){ const fd=new FormData(); fd.append("photo",photoFile); await apiFetch("/items/"+res.id+"/photo",{method:"POST",body:fd}); }
+    document.getElementById("item-result").innerHTML='<p style="color:var(--ok);">Added '+res.id+(res.item_code?' — part number: <b>'+res.item_code+'</b>':'')+
+      ' <button class="secondary btn-sm" onclick=\'printQR("'+res.id+(res.item_code?"|"+res.item_code:"")+'","'+name+'")\'>Print QR</button></p>';
+    document.getElementById("it-name").value="";
+    loadItems();
+  }catch(e){showError(e.message);}
+}
+let currentItemFilter=null;
+async function loadItems(typeFilter){
+  currentItemFilter = typeFilter;
+  try{
+    const q=typeFilter?"?item_type="+typeFilter:"";
+    const list=await apiFetch("/items"+q);
+    if(!list.length){document.getElementById("item-list").innerHTML="No items yet.";return;}
+    const cards=list.map(function(i){
+      const img=i.cover_photo?'<img src="/api/photo/'+i.cover_photo+'">':'<div style="height:90px;background:var(--cream);"></div>';
+      return '<div class="item-card">'+img+'<div class="pc-body"><p class="pc-name">'+i.name+'</p>'+
+        '<p class="pc-meta">'+i.item_type+' | stock: '+i.total_stock+'</p>'+
+        '<p class="pc-meta" style="color:var(--rose-dark);font-weight:600;">'+(i.item_code||i.id)+'</p>'+
+        '<button class="secondary btn-sm" onclick="viewItem(\''+i.id+'\')">View</button></div></div>';
+    }).join("");
+    document.getElementById("item-list").innerHTML='<div class="item-grid">'+cards+'</div>';
+  }catch(e){document.getElementById("item-list").textContent=e.message;}
+}
+async function viewItem(id){
+  try{
+    const it=await apiFetch("/items/"+id);
+    const lotRows=it.lots_by_site.map(function(l){return '<tr><td>'+l.id+'</td><td>'+l.site_name+'</td><td>'+l.quantity_balance+'</td><td>'+l.source_type+'</td>'+
+      '<td><button class="secondary btn-sm" onclick=\'printQR("'+(it.item_code||it.id)+"|"+l.id+'","'+it.name+' - '+l.id+'")\'>QR</button></td></tr>';}).join("");
+    document.getElementById("item-detail").innerHTML='<div class="card"><h4 style="margin-top:0;">'+it.name+'</h4>'+
+      '<p>'+(it.item_code||it.id)+' | Total stock: '+it.total_stock+'</p>'+
+      '<button class="secondary btn-sm" onclick=\'printQR("'+(it.item_code||it.id)+'","'+it.name+'")\'>Print item QR</button>'+
+      '<h4>Edit</h4>'+
+      '<label>Name</label><input id="ei-name" value="'+it.name.replace(/"/g,"&quot;")+'">'+
+      '<label>Color</label><input id="ei-color" value="'+(it.color||"")+'">'+
+      '<div class="row"><div><label>Price</label><input id="ei-price" type="number" step="0.01" value="'+(it.price||"")+'"></div><div><label>Cost</label><input id="ei-cost" type="number" step="0.01" value="'+(it.cost||"")+'"></div></div>'+
+      '<label>Description</label><textarea id="ei-desc" rows="2">'+(it.description||"")+'</textarea>'+
+      '<button class="secondary" onclick="saveItemEdit(\''+id+'\')">Save changes</button><div id="item-edit-msg"></div>'+
+      (it.lots_by_site.length?'<h4>Stock lots</h4><table><tr><th>Lot</th><th>Site</th><th>Qty</th><th>Source</th><th></th></tr>'+lotRows+'</table>':'<p class="muted">No stock lots yet.</p>')+
+      '<label>Add photo</label><input type="file" accept="image/*" id="item-detail-photo">'+
+      '<button class="secondary" onclick="uploadItemPhoto(\''+id+'\')">Upload</button></div>';
+  }catch(e){showError(e.message);}
+}
+async function saveItemEdit(id){
+  try{
+    await apiFetch("/items/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      name:document.getElementById("ei-name").value.trim(), color:document.getElementById("ei-color").value.trim(),
+      price:parseFloat(document.getElementById("ei-price").value)||null, cost:parseFloat(document.getElementById("ei-cost").value)||null,
+      description:document.getElementById("ei-desc").value.trim(),
+    })});
+    document.getElementById("item-edit-msg").innerHTML='<p style="color:var(--ok);">Saved.</p>';
+    viewItem(id); loadItems(currentItemFilter);
+  }catch(e){showError(e.message);}
+}
+async function uploadItemPhoto(id){
+  const f=document.getElementById("item-detail-photo").files[0]; if(!f){alert("Choose a file");return;}
+  const fd=new FormData(); fd.append("photo",f);
+  try{ await apiFetch("/items/"+id+"/photo",{method:"POST",body:fd}); viewItem(id); loadItems(currentItemFilter); }catch(e){showError(e.message);}
+}
+
+// ---------------- Sites ----------------
+async function createSite(){
+  try{
+    const res=await apiFetch("/sites",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:document.getElementById("site-name").value.trim(),site_type:document.getElementById("site-type").value})});
+    document.getElementById("site-result").innerHTML='<p style="color:var(--ok);">Added '+res.id+'</p>';
+    loadSites();
+  }catch(e){showError(e.message);}
+}
+async function loadSites(){
+  try{
+    const list=await apiFetch("/sites");
+    const rows=list.map(function(s){return '<tr><td>'+s.id+'</td><td>'+s.name+'</td><td>'+s.site_type+'</td></tr>';}).join("");
+    document.getElementById("site-list").innerHTML=list.length?'<table><tr><th>ID</th><th>Name</th><th>Type</th></tr>'+rows+'</table>':"No sites yet.";
+  }catch(e){document.getElementById("site-list").textContent=e.message;}
+}
+async function loadStockBySite(){
+  try{
+    const report=await apiFetch("/stock-by-site");
+    const html=report.sites.map(function(entry){
+      const rows=entry.lots.map(function(l){return '<tr><td>'+l.item_name+'</td><td>'+l.quantity_balance+'</td></tr>';}).join("");
+      return '<p><b>'+entry.site.name+'</b> ('+entry.site.site_type+')</p>'+(entry.lots.length?'<table><tr><th>Item</th><th>Qty</th></tr>'+rows+'</table>':'<p class="muted">Empty</p>');
+    }).join("");
+    document.getElementById("stock-by-site").innerHTML=html||"No sites yet.";
+  }catch(e){document.getElementById("stock-by-site").textContent=e.message;}
+}
+
+// ---------------- Purchase Orders ----------------
+async function createPO(){
+  try{
+    const supplierSel = document.getElementById("po-supplier-select");
+    const supplierParty = allPartiesCache.find(function(p){return p.id===supplierSel.value;});
+    const res=await apiFetch("/purchase-orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      supplier_party_id:supplierSel.value, supplier_name:supplierParty?supplierParty.name:"", item_id:document.getElementById("po-item").value,
+      quantity_ordered:parseFloat(document.getElementById("po-qty").value), rate:parseFloat(document.getElementById("po-rate").value)||null,
+      expected_date:document.getElementById("po-date").value||null })});
+    document.getElementById("po-result").innerHTML='<p style="color:var(--ok);">Order placed: '+res.id+'</p>';
+    loadPOs();
+  }catch(e){showError(e.message);}
+}
+async function loadPOs(){
+  try{
+    const list=await apiFetch("/purchase-orders");
+    const rows=list.map(function(po){
+      const recvForm = po.status!=="received" ?
+        '<input id="po-recv-'+po.id+'" type="number" step="0.1" placeholder="Qty" style="width:70px;display:inline-block;"> '+
+        '<button class="secondary btn-sm" onclick="receivePO(\''+po.id+'\')">Receive</button>' : (po.bill_status==="not_billed"?'<span class="warn-row">needs bill</span>':'billed');
+      return '<tr><td>'+po.id+'<br>'+(po.item_name||"")+'</td><td>'+po.supplier_name+'</td><td>'+po.quantity_received+'/'+po.quantity_ordered+'</td><td>'+po.status+'</td><td>'+recvForm+'</td></tr>';
+    }).join("");
+    document.getElementById("po-list").innerHTML=list.length?'<table><tr><th>Order</th><th>Supplier</th><th>Progress</th><th>Status</th><th></th></tr>'+rows+'</table>':"No orders yet.";
+  }catch(e){document.getElementById("po-list").textContent=e.message;}
+}
+async function receivePO(id){
+  const qty=parseFloat(document.getElementById("po-recv-"+id).value); if(!qty){alert("Enter quantity");return;}
+  try{ await apiFetch("/purchase-orders/"+id+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_received:qty})}); loadPOs(); }catch(e){showError(e.message);}
+}
+
+// ---------------- Work Orders ----------------
+async function loadBacklog(){
+  try{
+    const list = await apiFetch("/customer-orders");
+    const backlog = list.filter(function(o){return !o.linked_work_order_id && o.status!=="cancelled" && o.status!=="billed" && o.status!=="shipped";});
+    if(!backlog.length){document.getElementById("wo-backlog").innerHTML="Nothing waiting on a work order.";return;}
+    const rows = backlog.map(function(o){return '<tr><td>'+o.id+'</td><td>'+o.customer_name+'</td><td>'+(o.item_name||o.description)+'</td>'+
+      '<td><button class="secondary btn-sm" onclick="prefillWOFromOrder(\''+o.id+'\',\''+(o.item_id||"")+'\',\''+o.quantity+'\')">Create WO for this</button></td></tr>';}).join("");
+    document.getElementById("wo-backlog").innerHTML = '<table><tr><th>Order</th><th>Customer</th><th>Item</th><th></th></tr>'+rows+'</table>';
+  }catch(e){document.getElementById("wo-backlog").textContent=e.message;}
+}
+let prefillCustomerOrderId = null;
+function prefillWOFromOrder(coId, itemId, qty){
+  prefillCustomerOrderId = coId;
+  if(itemId) document.getElementById("wo-intended").value = itemId;
+  document.getElementById("wo-target").value = qty;
+  document.getElementById("wo-desc").value = "For order "+coId;
+  window.scrollTo(0,document.body.scrollHeight/3);
+}
+async function createWO(){
+  try{
+    const worker_site_id = document.getElementById("wo-worker").value;
+    if(!worker_site_id){ alert("A worker must be assigned to create a work order"); return; }
+    const res=await apiFetch("/work-orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      description:document.getElementById("wo-desc").value.trim(), work_instructions:document.getElementById("wo-instructions").value.trim(),
+      worker_site_id:worker_site_id, intended_item_id:document.getElementById("wo-intended").value||null,
+      target_quantity:parseFloat(document.getElementById("wo-target").value)||1, priority:document.getElementById("wo-priority").value,
+      due_date:document.getElementById("wo-due").value||null, related_customer_order_id: prefillCustomerOrderId })});
+    document.getElementById("wo-result").innerHTML='<p style="color:var(--ok);">Created '+res.id+'</p>';
+    prefillCustomerOrderId = null;
+    loadWOs(); loadBacklog();
+  }catch(e){showError(e.message);}
+}
+async function loadWOs(){
+  try{
+    const list=await apiFetch("/work-orders");
+    const rows=list.map(function(w){return '<tr><td>'+w.id+'</td><td>'+w.description+'</td><td><span class="stage-badge">'+w.stage+'</span></td><td>'+w.received_quantity_total+'/'+w.target_quantity+'</td>'+
+      '<td><button class="secondary btn-sm" onclick="viewWO(\''+w.id+'\')">View</button></td></tr>';}).join("");
+    document.getElementById("order-list").innerHTML=list.length?'<table><tr><th>Code</th><th>Desc</th><th>Stage</th><th>Progress</th><th></th></tr>'+rows+'</table>':"No work orders yet.";
+  }catch(e){document.getElementById("order-list").textContent=e.message;}
+}
+async function viewWO(id){
+  try{
+    const w=await apiFetch("/work-orders/"+id);
+    const issueRows=(w.issues||[]).map(function(i){return '<tr><td>'+i.item_name+'</td><td>'+i.quantity_issued+'</td><td>'+i.status+'</td></tr>';}).join("");
+    const pills = STAGES.map(function(s){return '<span class="stage-pill'+(s===w.stage?' current':'')+'" onclick="advanceStage(\''+w.id+'\',\''+s+'\')">'+s+'</span>';}).join("");
+    document.getElementById("wo-detail").innerHTML='<div class="card"><div class="code-big">'+w.id+'</div>'+
+      '<p>'+w.description+'</p><p>Worker: <b>'+(w.worker_site_name||"")+'</b> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
+      '<div class="stage-pills">'+pills+'</div>'+
+      '<h4>Reassign worker</h4><select id="wo-reassign"></select><button class="secondary" onclick="reassignWorker(\''+w.id+'\')">Reassign</button><div id="wo-reassign-msg"></div>'+
+      (issueRows?'<h4>Material issued</h4><table><tr><th>Item</th><th>Qty</th><th>Status</th></tr>'+issueRows+'</table>':'')+
+      '<h4>Issue material (creates a pending dispatch)</h4><label>Lot ID</label><input id="wo-issue-lot" placeholder="LOT-000001">'+
+      '<label>Quantity</label><input id="wo-issue-qty" type="number" step="0.1">'+
+      '<button class="secondary" onclick="issueMaterial(\''+w.id+'\')">Create dispatch</button><div id="wo-issue-msg"></div>'+
+      '<h4>Receive finished good</h4><label>Existing item ID (or leave blank)</label><input id="wo-recv-item">'+
+      '<label>Or new item name</label><input id="wo-recv-newname">'+
+      '<label>Quantity</label><input id="wo-recv-qty" type="number" step="1" value="1">'+
+      '<label>Labor cost</label><input id="wo-recv-labor" type="number" step="0.01">'+
+      '<label>Courier (optional)</label><input id="wo-recv-courier"><label>Tracking</label><input id="wo-recv-tracking">'+
+      '<button class="secondary" onclick="receiveWO(\''+w.id+'\')">Receive</button><div id="wo-recv-msg"></div></div>';
+    await populateSiteDropdown("wo-reassign","worker");
+  }catch(e){showError(e.message);}
+}
+async function reassignWorker(id){
+  try{ await apiFetch("/work-orders/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({worker_site_id:document.getElementById("wo-reassign").value})});
+    document.getElementById("wo-reassign-msg").innerHTML='<p style="color:var(--ok);">Reassigned.</p>'; viewWO(id); }catch(e){showError(e.message);}
+}
+async function advanceStage(id, stage){
+  try{ await apiFetch("/work-orders/"+id+"/stage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({stage:stage,changed_by:getSession().name})}); viewWO(id); loadWOs(); }catch(e){showError(e.message);}
+}
+async function issueMaterial(id){
+  try{
+    const lot_id=document.getElementById("wo-issue-lot").value.trim();
+    const quantity=parseFloat(document.getElementById("wo-issue-qty").value);
+    const res = await apiFetch("/work-orders/"+id+"/issue-material",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({lot_id:lot_id,quantity:quantity})});
+    document.getElementById("wo-issue-msg").innerHTML='<p style="color:var(--ok);">Dispatch '+res.dispatch_id+' created — go to the Dispatch tab to pick, confirm, and send it.</p>';
+  }catch(e){showError(e.message);}
+}
+async function receiveWO(id){
+  try{
+    const output_item_id=document.getElementById("wo-recv-item").value.trim()||null;
+    const new_item_name=document.getElementById("wo-recv-newname").value.trim()||null;
+    const quantity=parseFloat(document.getElementById("wo-recv-qty").value);
+    const labor_cost=parseFloat(document.getElementById("wo-recv-labor").value)||null;
+    const courier=document.getElementById("wo-recv-courier").value.trim();
+    const tracking_id=document.getElementById("wo-recv-tracking").value.trim();
+    const res=await apiFetch("/work-orders/"+id+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({output_item_id:output_item_id,new_item_name:new_item_name,quantity:quantity,labor_cost:labor_cost,courier:courier,tracking_id:tracking_id})});
+    document.getElementById("wo-recv-msg").innerHTML='<p style="color:var(--ok);">Received into '+res.item_id+(res.work_order_closed?' — work order CLOSED':'')+'</p>';
+    viewWO(id); loadWOs();
+  }catch(e){showError(e.message);}
+}
+
+// ---------------- Dispatch (real two-step) ----------------
+async function loadDispatchQueue(){
+  try{
+    const q=await apiFetch("/dispatch-queue");
+    const shipRows=q.customer_shipments.map(function(o){return '<tr><td>'+o.id+'</td><td>'+o.customer_name+'</td><td>'+(o.item_name||o.description)+'</td>'+
+      '<td><button class="secondary btn-sm" onclick="switchTab(\'co\');viewCO(\''+o.id+'\')">Go ship</button></td></tr>';}).join("");
+    const matRows=q.material_to_workers.map(function(w){return '<tr><td>'+w.id+'</td><td>'+w.description+'</td><td>'+w.worker_site_name+'</td>'+
+      '<td><button class="secondary btn-sm" onclick="switchTab(\'workorders\');viewWO(\''+w.id+'\')">Issue material</button></td></tr>';}).join("");
+
+    const allDispatches = await apiFetch("/dispatches");
+    const pendingDispatches = allDispatches.filter(function(d){return d.status!=="shipped"&&d.status!=="received";});
+    const dispRows = pendingDispatches.map(function(d){return '<tr><td>'+d.id+'</td><td>'+d.dispatch_type+'</td><td>'+d.status+'</td>'+
+      '<td><button class="secondary btn-sm" onclick="openDispatchAction(\''+d.id+'\')">Act on it</button></td></tr>';}).join("");
+
+    document.getElementById("dispatch-queue").innerHTML=
+      '<h4>Needs a dispatch created</h4>'+
+      (q.customer_shipments.length?'<table><tr><th>Order</th><th>Customer</th><th>Item</th><th></th></tr>'+shipRows+'</table>':'')+
+      (q.material_to_workers.length?'<table><tr><th>WO</th><th>Desc</th><th>Worker</th><th></th></tr>'+matRows+'</table>':'')+
+      (!q.customer_shipments.length && !q.material_to_workers.length ? '<p class="muted">Nothing new needs a dispatch.</p>' : '')+
+      '<h4>In progress (pick / ship)</h4>'+(pendingDispatches.length?'<table><tr><th>ID</th><th>Type</th><th>Status</th><th></th></tr>'+dispRows+'</table>':'<p class="muted">Nothing in progress.</p>');
+  }catch(e){document.getElementById("dispatch-queue").textContent=e.message;}
+}
+async function openDispatchAction(dispatchId){
+  try{
+    const d = await apiFetch("/dispatches/"+dispatchId);
+    const itemRows = d.items.map(function(it){
+      if(it.scanned_quantity===null){
+        return '<tr><td>'+it.item_name+'</td><td>'+it.expected_quantity+'</td><td>'+
+          '<input id="pick-qty-'+it.id+'" type="number" step="0.1" value="'+it.expected_quantity+'" style="width:80px;display:inline-block;">'+
+          '<button class="secondary btn-sm" onclick="confirmPickItem(\''+dispatchId+'\',\''+it.item_id+'\',\''+(it.lot_id||"")+'\',\''+it.id+'\')">Confirm pick</button></td></tr>';
+      }
+      return '<tr><td>'+it.item_name+'</td><td>'+it.scanned_quantity+'</td><td>picked</td></tr>';
+    }).join("");
+    const allPicked = d.items.every(function(it){return it.scanned_quantity!==null;});
+    document.getElementById("dispatch-action-area").innerHTML = '<div class="card"><div class="code-big">'+d.id+'</div><p>'+d.dispatch_type+' | status: '+d.status+'</p>'+
+      '<table><tr><th>Item</th><th>Qty</th><th></th></tr>'+itemRows+'</table>'+
+      (allPicked && d.status!=="shipped" ? '<label>Courier</label><input id="ship-courier"><label>Tracking (optional)</label><input id="ship-tracking">'+
+        '<button class="secondary" onclick="shipThisDispatch(\''+d.id+'\')">Pack & Send</button><div id="ship-msg"></div>' : '')+
+      '</div>';
+  }catch(e){showError(e.message);}
+}
+async function confirmPickItem(dispatchId, itemId, lotId, dispatchItemId){
+  try{
+    const qty = parseFloat(document.getElementById("pick-qty-"+dispatchItemId).value);
+    await apiFetch("/dispatches/"+dispatchId+"/scan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item_id:itemId,lot_id:lotId||null,scanned_quantity:qty})});
+    openDispatchAction(dispatchId);
+  }catch(e){showError(e.message);}
+}
+async function shipThisDispatch(dispatchId){
+  try{
+    await apiFetch("/dispatches/"+dispatchId+"/ship",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({courier:document.getElementById("ship-courier").value.trim(),tracking_id:document.getElementById("ship-tracking").value.trim()})});
+    document.getElementById("dispatch-action-area").innerHTML='<p style="color:var(--ok);">Shipped — it now needs to be confirmed received on the Receive tab.</p>';
+    loadDispatchQueue(); loadDispatchHistory();
+  }catch(e){showError(e.message);}
+}
+async function loadDispatchHistory(){
+  try{
+    const from=document.getElementById("disp-hist-from").value, to=document.getElementById("disp-hist-to").value;
+    let list=await apiFetch("/dispatches");
+    if(from&&to) list=list.filter(function(d){return d.shipped_at && d.shipped_at.slice(0,10)>=from && d.shipped_at.slice(0,10)<=to;});
+    const rows=list.filter(function(d){return d.status==="shipped"||d.status==="received";}).slice(0,50).map(function(d){return '<tr><td>'+d.id+'</td><td>'+d.dispatch_type+'</td><td>'+(d.from_site_name||"-")+' → '+(d.to_site_name||"-")+'</td><td>'+(d.courier||"-")+' '+(d.tracking_id||"")+'</td><td>'+d.status+'</td>'+
+      '<td><button class="secondary btn-sm" onclick="editDispatchTracking(\''+d.id+'\')">Edit tracking</button></td></tr>';}).join("");
+    document.getElementById("dispatch-history").innerHTML=rows?'<table><tr><th>ID</th><th>Type</th><th>Route</th><th>Courier</th><th>Status</th><th></th></tr>'+rows+'</table>':'<p class="muted">Nothing shipped yet in this range.</p>';
+  }catch(e){document.getElementById("dispatch-history").textContent=e.message;}
+}
+async function editDispatchTracking(id){
+  const courier = prompt("Courier:"); if(courier===null) return;
+  const tracking_id = prompt("Tracking ID:"); if(tracking_id===null) return;
+  try{ await apiFetch("/dispatches/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({courier:courier,tracking_id:tracking_id})}); loadDispatchHistory(); }catch(e){showError(e.message);}
+}
+
+// ---------------- Receive ----------------
+async function loadReceiveQueue(){
+  try{
+    let list = await apiFetch("/dispatches");
+    list = list.filter(function(d){return d.status==="shipped";});
+    if(!list.length){document.getElementById("receive-queue").innerHTML="Nothing awaiting confirmation.";return;}
+    const rows = list.map(function(d){return '<tr><td>'+d.id+'</td><td>'+d.dispatch_type+'</td><td>'+(d.to_site_name||"-")+'</td>'+
+      '<td><button class="secondary btn-sm" onclick="openReceiveConfirm(\''+d.id+'\')">Confirm receipt</button></td></tr>';});
+    document.getElementById("receive-queue").innerHTML = '<table><tr><th>Dispatch</th><th>Type</th><th>To</th><th></th></tr>'+rows.join("")+'</table><div id="receive-confirm-area"></div>';
+  }catch(e){document.getElementById("receive-queue").textContent=e.message;}
+}
+async function openReceiveConfirm(dispatchId){
+  try{
+    const d = await apiFetch("/dispatches/"+dispatchId);
+    const rows = d.items.map(function(it){return '<tr><td>'+it.item_name+'</td><td>'+it.scanned_quantity+'</td><td><input id="recv-qty-'+it.id+'" type="number" step="0.1" value="'+it.scanned_quantity+'" style="width:80px;"></td></tr>';}).join("");
+    document.getElementById("receive-confirm-area").innerHTML = '<div class="card"><h4 style="margin-top:0;">Confirm '+d.id+'</h4>'+
+      '<table><tr><th>Item</th><th>Shipped</th><th>Actually received</th></tr>'+rows+'</table>'+
+      '<button class="secondary" onclick="submitReceiveConfirm(\''+d.id+'\')">Confirm</button><div id="recv-confirm-msg"></div></div>';
+    window.__pendingDispatchItems = d.items;
+  }catch(e){showError(e.message);}
+}
+async function submitReceiveConfirm(dispatchId){
+  try{
+    const confirmations = window.__pendingDispatchItems.map(function(it){return {dispatch_item_id:it.id, received_quantity: parseFloat(document.getElementById("recv-qty-"+it.id).value)};});
+    await apiFetch("/dispatches/"+dispatchId+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirmations:confirmations})});
+    document.getElementById("recv-confirm-msg").innerHTML='<p style="color:var(--ok);">Confirmed — stock now credited.</p>';
+    loadReceiveQueue(); loadReceiveHistory();
+  }catch(e){showError(e.message);}
+}
+async function lookupLotReturns(){
+  try{
+    const lotId = document.getElementById("return-lot-id").value.trim().split("|").pop();
+    const res = await apiFetch("/material-issues-by-lot?lot_id="+lotId);
+    if(!res.open_issues.length){document.getElementById("return-options").innerHTML='<p class="muted">No open issues for that lot.</p>';return;}
+    const options = res.open_issues.map(function(i){return '<div class="card"><p>Issue '+i.id+' — '+i.work_order_description+' — with '+i.worker_site_name+'</p>'+
+      '<p>Issued: '+i.quantity_issued+' | Already accounted: '+(i.quantity_returned_stock+i.quantity_wasted)+'</p>'+
+      '<label>Returned as usable stock</label><input id="ret-stock-'+i.id+'" type="number" step="0.1" value="0">'+
+      '<label>Wasted</label><input id="ret-waste-'+i.id+'" type="number" step="0.1" value="0">'+
+      '<button class="secondary" onclick="confirmMaterialReturn(\''+i.id+'\')">Confirm this return</button><div id="ret-msg-'+i.id+'"></div></div>';}).join("");
+    document.getElementById("return-options").innerHTML = options;
+  }catch(e){showError(e.message);}
+}
+async function confirmMaterialReturn(issueId){
+  try{
+    const returned = parseFloat(document.getElementById("ret-stock-"+issueId).value)||0;
+    const wasted = parseFloat(document.getElementById("ret-waste-"+issueId).value)||0;
+    const res = await apiFetch("/material-issues/"+issueId+"/return",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_returned_stock:returned,quantity_wasted:wasted})});
+    document.getElementById("ret-msg-"+issueId).innerHTML='<p style="color:var(--ok);">'+(res.fully_reconciled?"Fully closed.":"Recorded — "+res.still_unaccounted+" still unaccounted for.")+'</p>';
+    loadReceiveHistory();
+  }catch(e){showError(e.message);}
+}
+async function loadReceiveHistory(){
+  try{
+    const h=await apiFetch("/receive-history");
+    const workerRows=h.received_from_workers.map(function(r){return '<tr><td>'+r.work_order_id+'</td><td>'+r.work_order_description+'</td><td>'+r.worker_site_name+'</td></tr>';}).join("");
+    const poRows=h.received_from_purchase_orders.map(function(r){return '<tr><td>'+r.id+'</td><td>'+r.item_name+'</td><td>'+r.supplier_name+'</td></tr>';}).join("");
+    document.getElementById("receive-history").innerHTML=
+      '<h4>From workers</h4>'+(h.received_from_workers.length?'<table><tr><th>WO</th><th>Desc</th><th>Worker</th></tr>'+workerRows+'</table>':'<p class="muted">None yet.</p>')+
+      '<h4>From suppliers</h4>'+(h.received_from_purchase_orders.length?'<table><tr><th>PO</th><th>Item</th><th>Supplier</th></tr>'+poRows+'</table>':'<p class="muted">None yet.</p>');
+  }catch(e){document.getElementById("receive-history").textContent=e.message;}
+}
+
+// ---------------- Customer Orders ----------------
+async function createCO(){
+  try{
+    const custSel = document.getElementById("co-customer-select");
+    const custParty = allPartiesCache.find(function(p){return p.id===custSel.value;});
+    const item_id=document.getElementById("co-item").value||null;
+    const description=document.getElementById("co-desc").value.trim()||null;
+    const res=await apiFetch("/customer-orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      customer_party_id: custSel.value||null, customer_name: custParty?custParty.name:"Walk-in", customer_phone:document.getElementById("co-phone").value.trim(),
+      item_id:item_id, description:description, quantity:parseFloat(document.getElementById("co-qty").value)||1,
+      tax_rate:parseFloat(document.getElementById("co-tax").value)||0, promised_delivery_date:document.getElementById("co-promised").value||null })});
+    document.getElementById("co-result").innerHTML='<p style="color:var(--ok);">'+res.id+' logged.</p>';
+    loadCOs();
+  }catch(e){showError(e.message);}
+}
+async function loadCOs(){
+  try{
+    const list=await apiFetch("/customer-orders");
+    const rows=list.map(function(o){return '<tr><td>'+o.id+'</td><td>'+o.customer_name+'</td><td>'+(o.item_name||o.description)+'</td><td>'+o.status+'</td><td><button class="secondary btn-sm" onclick="viewCO(\''+o.id+'\')">View</button></td></tr>';}).join("");
+    document.getElementById("co-list").innerHTML=list.length?'<table><tr><th>Order</th><th>Customer</th><th>Item</th><th>Status</th><th></th></tr>'+rows+'</table>':"No customer orders yet.";
+  }catch(e){document.getElementById("co-list").textContent=e.message;}
+}
+async function viewCO(id){
+  try{
+    const o=await apiFetch("/customer-orders/"+id);
+    let html='<div class="card"><div class="code-big">'+o.id+'</div><p>'+o.customer_name+' — '+(o.item_name||o.description)+' x'+o.quantity+'</p><p>Status: <span class="stage-badge">'+o.status+'</span></p>';
+    if(o.current_stock!==null) html+='<p>Current stock of this item: <b>'+o.current_stock+'</b></p>';
+    if(o.open_work_orders_for_item && o.open_work_orders_for_item.length){
+      html += '<p>Open work orders already making this item: '+o.open_work_orders_for_item.map(function(w){return w.id+" ("+w.worker_site_name+")";}).join(", ")+'</p>';
+    }
+    if(o.work_order) html+='<p>Linked WO: '+o.work_order.id+' ('+o.work_order.stage+')</p>';
+    if(o.sale) html+='<p>Sale: '+o.sale.id+' — Rs '+o.sale.total_amount+'</p>';
+    if(!o.linked_work_order_id && !["billed","shipped","cancelled"].includes(o.status)){
+      html += '<button class="secondary" onclick="switchTab(\'workorders\');prefillWOFromOrder(\''+o.id+'\',\''+(o.item_id||"")+'\',\''+o.quantity+'\')">Create a work order for this</button>';
+    }
+    if(!["billed","shipped","cancelled"].includes(o.status)){
+      html+='<h4>Bill it</h4><label>Sale price (pre-tax)</label><input id="co-bill-price" type="number" step="0.01">'+
+        '<label>Exact lot (optional, overrides FIFO)</label><input id="co-bill-lot">'+
+        '<button class="secondary" onclick="billCO(\''+o.id+'\')">Bill</button><div id="co-bill-msg"></div>';
+    }
+    if(o.status==="billed"){
+      html+='<label>Courier</label><input id="co-ship-courier"><label>Tracking (optional)</label><input id="co-ship-tracking">'+
+        '<button class="secondary" onclick="shipCO(\''+o.id+'\')">Ship</button><div id="co-ship-msg"></div>';
+    }
+    if(o.status==="shipped"){
+      html+='<p>Shipped: '+(o.courier||"-")+' / '+(o.tracking_id||"no tracking yet")+'</p>'+
+        '<label>Update tracking</label><input id="co-track-later" value="'+(o.tracking_id||"")+'">'+
+        '<button class="secondary" onclick="updateCOTracking(\''+o.id+'\')">Update</button><div id="co-track-msg"></div>';
+    }
+    html+='</div>';
+    document.getElementById("co-detail").innerHTML=html;
+  }catch(e){showError(e.message);}
+}
+async function billCO(id){
+  try{
+    const sale_price=parseFloat(document.getElementById("co-bill-price").value);
+    const lot_id=document.getElementById("co-bill-lot").value.trim()||null;
+    await apiFetch("/customer-orders/"+id+"/bill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sale_price:sale_price,lot_id:lot_id})});
+    document.getElementById("co-bill-msg").innerHTML='<p style="color:var(--ok);">Billed.</p>'; viewCO(id); loadCOs();
+  }catch(e){showError(e.message);}
+}
+async function shipCO(id){
+  try{
+    await apiFetch("/customer-orders/"+id+"/ship",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({courier:document.getElementById("co-ship-courier").value.trim(),tracking_id:document.getElementById("co-ship-tracking").value.trim()})});
+    document.getElementById("co-ship-msg").innerHTML='<p style="color:var(--ok);">Shipped.</p>'; viewCO(id); loadCOs();
+  }catch(e){showError(e.message);}
+}
+async function updateCOTracking(id){
+  try{
+    await apiFetch("/customer-orders/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({tracking_id:document.getElementById("co-track-later").value.trim()})});
+    document.getElementById("co-track-msg").innerHTML='<p style="color:var(--ok);">Updated.</p>'; viewCO(id);
+  }catch(e){showError(e.message);}
+}
+
+// ---------------- Sales / Refunds ----------------
+async function createSale(){
+  try{
+    const custSel = document.getElementById("s-customer-select");
+    const custParty = allPartiesCache.find(function(p){return p.id===custSel.value;});
+    const isReseller = custParty && custParty.type==="reseller";
+    const res=await apiFetch("/sales",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      item_id:document.getElementById("s-item").value||null, lot_id:document.getElementById("s-lot").value.trim()||null,
+      quantity:parseFloat(document.getElementById("s-qty").value)||1,
+      description:document.getElementById("s-desc").value.trim(), sale_price:parseFloat(document.getElementById("s-price").value),
+      tax_rate:parseFloat(document.getElementById("s-tax").value)||0,
+      customer_party_id:custSel.value||null, customer_name:(custParty&&!isReseller)?custParty.name:null,
+      reseller_name:(custParty&&isReseller)?custParty.name:null })});
+    document.getElementById("sale-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+' — total Rs '+res.total_amount+'</p>'; loadSales(); loadSalesForRefund();
+  }catch(e){showError(e.message);}
+}
+async function loadSales(){
+  try{ const list=await apiFetch("/sales"); const rows=list.slice(0,20).map(function(s){return '<tr><td>'+s.id+'</td><td>'+s.description+'</td><td>Rs '+s.total_amount+'</td></tr>';}).join("");
+    document.getElementById("sales-list").innerHTML=list.length?'<table><tr><th>Code</th><th>Desc</th><th>Total</th></tr>'+rows+'</table>':"None yet."; }catch(e){document.getElementById("sales-list").textContent=e.message;}
+}
+async function loadSalesForRefund(){
+  try{ const list=await apiFetch("/sales"); document.getElementById("ref-sale-select").innerHTML = list.map(function(s){return '<option value="'+s.id+'">'+s.id+' - '+s.description+' (Rs '+s.total_amount+')</option>';}).join(""); }catch(e){}
+}
+async function createRefund(){
+  try{
+    await apiFetch("/refunds",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sale_id:document.getElementById("ref-sale-select").value,amount:parseFloat(document.getElementById("ref-amount").value),reason:document.getElementById("ref-reason").value.trim()})});
+    document.getElementById("refund-msg").innerHTML='<p style="color:var(--ok);">Recorded.</p>';
+  }catch(e){showError(e.message);}
+}
+
+// ---------------- Supplier Bills ----------------
+function toggleSupplierBillType(){ document.getElementById("sb-po-wrap").style.display = document.getElementById("sb-type").value==="po"?"block":"none"; }
+async function loadUnbilledPOs(){
+  const list = await apiFetch("/purchase-orders");
+  const unbilled = list.filter(function(po){return po.status==="received" && po.bill_status==="not_billed";});
+  document.getElementById("sb-po").innerHTML = unbilled.map(function(po){return '<option value="'+po.id+'">'+po.id+' - '+po.supplier_name+'</option>';}).join("");
+}
+async function createSupplierBill(){
+  try{
+    const isPO = document.getElementById("sb-type").value==="po";
+    const supplierSel = document.getElementById("sb-supplier-select");
+    const supplierParty = allPartiesCache.find(function(p){return p.id===supplierSel.value;});
+    const res = await apiFetch("/supplier-bills",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      purchase_order_id: isPO?document.getElementById("sb-po").value:null,
+      supplier_party_id: supplierSel.value||null, supplier_name: supplierParty?supplierParty.name:"Cash purchase",
+      bill_number:document.getElementById("sb-number").value.trim(), amount:parseFloat(document.getElementById("sb-amount").value),
+      description:document.getElementById("sb-desc").value.trim() })});
+    document.getElementById("sb-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+'</p>';
+    loadUnbilledPOs(); loadSupplierBills();
+  }catch(e){showError(e.message);}
+}
+async function loadSupplierBills(){
+  try{ const list=await apiFetch("/supplier-bills"); const rows=list.slice(0,20).map(function(b){return '<tr><td>'+b.id+'</td><td>'+b.supplier_name+'</td><td>Rs '+b.amount+'</td></tr>';}).join("");
+    document.getElementById("sb-list").innerHTML=list.length?'<table><tr><th>Code</th><th>Supplier</th><th>Amount</th></tr>'+rows+'</table>':"None yet."; }catch(e){document.getElementById("sb-list").textContent=e.message;}
+}
+
+// ---------------- Expenses ----------------
+async function createExpense(){
+  try{ const res=await apiFetch("/expenses",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({description:document.getElementById("e-desc").value.trim(),expense_category_id:parseInt(document.getElementById("e-category-select").value),amount:parseFloat(document.getElementById("e-amount").value)})});
+    document.getElementById("expense-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+'</p>'; loadExpenses(); }catch(e){showError(e.message);}
+}
+async function loadExpenses(){
+  try{ const list=await apiFetch("/expenses"); const rows=list.slice(0,20).map(function(x){return '<tr><td>'+x.id+'</td><td>'+x.description+'</td><td>'+(x.category_name||"")+'</td><td>Rs '+x.amount+'</td></tr>';}).join("");
+    document.getElementById("expenses-list").innerHTML=list.length?'<table><tr><th>Code</th><th>Desc</th><th>Category</th><th>Amount</th></tr>'+rows+'</table>':"None yet."; }catch(e){document.getElementById("expenses-list").textContent=e.message;}
+}
+
+// ---------------- Payments Receivable / Payable / Worker ----------------
+async function loadOutstandingFor(direction){
+  const selId = direction==="receivable"?"recv-party":(direction==="payable"?"pay-party":"wp-party");
+  const areaId = direction==="receivable"?"recv-bills":(direction==="payable"?"pay-bills":"wp-bills");
+  const partyId = document.getElementById(selId).value;
+  if(!partyId){document.getElementById(areaId).innerHTML="";return;}
+  try{
+    const res = await apiFetch("/outstanding-bills?party_id="+partyId+"&direction="+direction);
+    if(!res.bills.length){document.getElementById(areaId).innerHTML="<p class='muted'>Nothing outstanding.</p>";return;}
+    const rows = res.bills.map(function(b){return '<tr><td>'+b.bill_id+'</td><td>'+b.description+'</td><td>Rs '+b.outstanding+'</td><td><input type="number" step="0.01" class="bill-alloc" data-bill-type="'+b.bill_type+'" data-bill-id="'+b.bill_id+'" style="width:90px;"></td></tr>';}).join("");
+    document.getElementById(areaId).innerHTML = '<table><tr><th>Bill</th><th>Desc</th><th>Outstanding</th><th>Apply</th></tr>'+rows+'</table>';
+  }catch(e){showError(e.message);}
+}
+async function submitPayment(direction){
+  const selId = direction==="receivable"?"recv-party":(direction==="payable"?"pay-party":"wp-party");
+  const amtId = direction==="receivable"?"recv-amount":(direction==="payable"?"pay-amount":"wp-amount");
+  const areaId = direction==="receivable"?"recv-bills":(direction==="payable"?"pay-bills":"wp-bills");
+  const resultId = direction==="receivable"?"recv-result":(direction==="payable"?"pay-result":"wp-result");
+  try{
+    const party_id = document.getElementById(selId).value;
+    const amount = parseFloat(document.getElementById(amtId).value);
+    if(!party_id||!amount){alert("Party and amount are required");return;}
+    const allocations = Array.from(document.querySelectorAll("#"+areaId+" .bill-alloc")).filter(function(el){return parseFloat(el.value)>0;})
+      .map(function(el){return {bill_type:el.dataset.billType, bill_id:el.dataset.billId, amount_applied:parseFloat(el.value)};});
+    const refFieldId = direction==="receivable"?"recv-ref":(direction==="payable"?"pay-ref":null);
+    const refField = refFieldId ? document.getElementById(refFieldId) : null;
+    const res = await apiFetch("/payments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({party_id:party_id,direction:direction,amount:amount,reference:refField?refField.value.trim():null,allocations:allocations})});
+    document.getElementById(resultId).innerHTML='<p style="color:var(--ok);">Recorded'+(res.unallocated?' — Rs '+res.unallocated+' left as an advance on their account':'')+'</p>';
+    document.getElementById(amtId).value=""; loadOutstandingFor(direction);
+  }catch(e){showError(e.message);}
+}
+
+// ---------------- General Journal ----------------
+async function createJournalEntry(){
+  try{
+    const debit=document.getElementById("je-debit").value, credit=document.getElementById("je-credit").value;
+    const res=await apiFetch("/journal-entries",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      date:document.getElementById("je-date").value||null, description:document.getElementById("je-desc").value.trim(),
+      debit_account_id:parseInt(debit), credit_account_id:parseInt(credit), amount:parseFloat(document.getElementById("je-amount").value) })});
+    document.getElementById("je-result").innerHTML='<p style="color:var(--ok);">Posted '+res.id+'</p>';
+  }catch(e){showError(e.message);}
+}
+
+// ---------------- Ledger / P&L ----------------
+async function loadPnL(){
+  try{
+    const from=document.getElementById("pnl-from").value, to=document.getElementById("pnl-to").value;
+    const qs=from&&to?"?from="+from+"&to="+to:"";
+    const r=await apiFetch("/reports/pnl"+qs);
+    document.getElementById("pnl-result").innerHTML='<div class="kpi-grid">'+
+      '<div class="kpi"><div class="num">Rs '+r.net_revenue+'</div><div class="lbl">Net revenue</div></div>'+
+      '<div class="kpi"><div class="num">Rs '+r.cogs+'</div><div class="lbl">COGS</div></div>'+
+      '<div class="kpi"><div class="num">Rs '+r.gross_profit+'</div><div class="lbl">Gross profit</div></div>'+
+      '<div class="kpi"><div class="num">Rs '+r.expenses+'</div><div class="lbl">Expenses</div></div>'+
+      '<div class="kpi"><div class="num">Rs '+r.net_profit+'</div><div class="lbl">Net profit</div></div>'+
+      '</div>';
+  }catch(e){showError(e.message);}
+}
+async function loadLedgerView(){
+  try{
+    const accountId=document.getElementById("ledger-account").value;
+    const from=document.getElementById("ledger-from").value, to=document.getElementById("ledger-to").value;
+    let qs="?account_id="+accountId; if(from&&to) qs+="&from="+from+"&to="+to;
+    const r=await apiFetch("/ledger"+qs);
+    const rows=r.entries.map(function(e){return '<tr><td>'+e.entry_date+'</td><td>'+(e.description||"")+'</td><td>'+(e.debit||"")+'</td><td>'+(e.credit||"")+'</td></tr>';}).join("");
+    document.getElementById("ledger-result").innerHTML = (rows?'<table><tr><th>Date</th><th>Desc</th><th>Debit</th><th>Credit</th></tr>'+rows+'</table>':'<p class="muted">No entries.</p>')+
+      '<p><b>Total debit: Rs '+r.total_debit+' | Total credit: Rs '+r.total_credit+'</b></p>';
+  }catch(e){document.getElementById("ledger-result").textContent=e.message;}
+}
+
+// ---------------- Parties ----------------
+function toggleResellerFields(){ document.getElementById("reseller-fields").style.display = document.getElementById("pty-type").value==="reseller"?"block":"none"; }
+async function createParty(){
+  try{
+    const type=document.getElementById("pty-type").value;
+    const bodyObj={name:document.getElementById("pty-name").value.trim(), type:type, opening_balance:parseFloat(document.getElementById("pty-opening").value)||0};
+    if(type==="reseller"){ bodyObj.discount_tier=parseInt(document.getElementById("pty-tier").value); bodyObj.target_amount=parseFloat(document.getElementById("pty-target").value)||null; bodyObj.target_period=document.getElementById("pty-period").value; bodyObj.bonus_rule=document.getElementById("pty-bonus").value.trim(); }
+    const res=await apiFetch("/parties",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(bodyObj)});
+    document.getElementById("party-result").innerHTML='<p style="color:var(--ok);">Added '+res.id+'</p>'; loadParties();
+  }catch(e){showError(e.message);}
+}
+async function loadParties(){
+  try{ const list=await apiFetch("/parties"); const rows=list.map(function(p){return '<tr><td>'+p.name+'</td><td>'+p.type+'</td><td>Rs '+p.balance+'</td></tr>';}).join("");
+    document.getElementById("parties-list").innerHTML=list.length?'<table><tr><th>Name</th><th>Type</th><th>Balance</th></tr>'+rows+'</table>':"None yet."; }catch(e){document.getElementById("parties-list").textContent=e.message;}
+}
+
+// ---------------- Users ----------------
+function toggleWorkerSiteOption(){ document.getElementById("u-worker-site-wrap").style.display = document.getElementById("u-role").value==="worker"?"block":"none"; }
+async function createUser(){
+  try{
+    const role=document.getElementById("u-role").value;
+    const res=await apiFetch("/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      name:document.getElementById("u-name").value.trim(), username:document.getElementById("u-username").value.trim(),
+      pin:document.getElementById("u-pin").value.trim(), role:role, create_worker_site: role==="worker" && document.getElementById("u-create-site").checked })});
+    document.getElementById("user-result").innerHTML='<p style="color:var(--ok);">Created login'+(res.site_id?' with site '+res.site_id:'')+'</p>'; loadUsers();
+  }catch(e){showError(e.message);}
+}
+async function loadUsers(){
+  try{ const list=await apiFetch("/users"); const rows=list.map(function(u){return '<tr><td>'+u.name+' (@'+u.username+')</td><td>'+u.role+'</td><td>'+(u.active?"Active":"Disabled")+'</td></tr>';}).join("");
+    document.getElementById("users-list").innerHTML=list.length?'<table><tr><th>Name</th><th>Role</th><th>Status</th></tr>'+rows+'</table>':"None yet."; }catch(e){document.getElementById("users-list").textContent=e.message;}
+}
+
+if(getSession()) boot();
+</script>
+</body>
+</html>

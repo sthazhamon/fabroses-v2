@@ -1,0 +1,177 @@
+// True end-to-end test against the rebuilt backend + frontend. Real HTTP,
+// real request bodies copied from the frontend's own JS functions.
+// Run with: node test/frontend-integration-test-v2.mjs
+
+import { DatabaseSync } from "node:sqlite";
+import { readFileSync } from "node:fs";
+import { wrapD1, makeFakeR2 } from "./d1-shim.mjs";
+import { buildRouter, startServer } from "./router.mjs";
+
+let passed = 0, failed = 0;
+function assert(condition, label) {
+  if (condition) { passed++; console.log(`  \x1b[32m✓\x1b[0m ${label}`); }
+  else { failed++; console.log(`  \x1b[31m✗ FAIL\x1b[0m ${label}`); }
+}
+function section(title) { console.log(`\n${title}`); }
+
+const PORT = 8992;
+const BASE = `http://localhost:${PORT}/api`;
+let token = null;
+
+async function apiFetch(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const res = await fetch(BASE + path, Object.assign({}, opts, { headers }));
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || "Request failed");
+  return json;
+}
+function postJSON(body) { return { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }; }
+function patchJSON(body) { return { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }; }
+
+async function run() {
+  const sqliteDb = new DatabaseSync(":memory:");
+  sqliteDb.exec(readFileSync(new URL("../schema.sql", import.meta.url), "utf8"));
+  const env = { DB: wrapD1(sqliteDb), PHOTOS: makeFakeR2(), AUTH_SECRET: "test-secret" };
+
+  const router = await buildRouter(new URL("../functions/api", import.meta.url).pathname);
+  const server = await startServer(router, env, PORT);
+  console.log(`Test server listening on ${PORT}, routes loaded: ${router.routes.length}`);
+
+  try {
+    const { generateSalt, hashPin } = await import("../functions/api/_auth.js");
+    const salt = generateSalt();
+    const hash = await hashPin("adminpin123", salt);
+    await env.DB.prepare("INSERT INTO users (name, username, pin_hash, pin_salt, role, token_version, active) VALUES ('Admin', 'admin', ?, ?, 'admin', 1, 1)").bind(hash, salt).run();
+
+    section("=== Login ===");
+    const loginRes = await fetch(BASE + "/auth/login", postJSON({ username: "admin", pin: "adminpin123" })).then((r) => r.json());
+    assert(loginRes.token, "login succeeded");
+    token = loginRes.token;
+
+    section("=== Sites, Items, Parties — exact frontend field names ===");
+    const store = await apiFetch("/sites", postJSON({ name: "Main Store", site_type: "store" }));
+    const workerRes = await apiFetch("/sites", postJSON({ name: "Zakir", site_type: "worker" }));
+    assert(workerRes.worker_party_id, "createSite() for a worker returns worker_party_id, matching frontend expectations");
+
+    const rawItem = await apiFetch("/items", postJSON({ item_type: "raw_material", name: "Kota", category_id: null, fabric_id: null, work_type_id: null, pattern_id: null, unit_of_measure: "metre", color: "", price: null, cost: null, description: "" }));
+    const finishedItem = await apiFetch("/items", postJSON({ item_type: "finished_good", name: "Test Saree", category_id: null, fabric_id: null, work_type_id: null, pattern_id: null, unit_of_measure: "piece", color: "", price: 5000, cost: null, description: "" }));
+    const anu = await apiFetch("/parties", postJSON({ name: "Anu", type: "customer", opening_balance: 0 }));
+    assert(anu.id, "createParty()'s field set accepted");
+
+    section("=== Purchase Order -> receive -> Supplier Bill (PO track) ===");
+    const po = await apiFetch("/purchase-orders", postJSON({ supplier_party_id: null, supplier_name: "Neelam Fabrics", item_id: rawItem.id, quantity_ordered: 50, rate: 200, expected_date: null }));
+    await apiFetch("/purchase-orders/" + po.id + "/receive", postJSON({ quantity_received: 50 }));
+    const sbRes = await apiFetch("/supplier-bills", postJSON({ purchase_order_id: po.id, supplier_party_id: null, supplier_name: "Neelam Fabrics", bill_number: "INV1", amount: 10000, description: "" }));
+    assert(sbRes.id, "createSupplierBill() (PO track) accepted");
+
+    section("=== Cash purchase track (no PO) ===");
+    const cashBill = await apiFetch("/supplier-bills", postJSON({ purchase_order_id: null, supplier_party_id: null, supplier_name: "Cash purchase", bill_number: "", amount: 200, description: "Buttons" }));
+    assert(cashBill.id, "cash purchase (no PO) works as its own track");
+
+    section("=== Work Order creation REQUIRES a worker (createWO()'s exact body) ===");
+    const noWorkerRes = await fetch(BASE + "/work-orders", postJSON({ description: "Test", work_instructions: "", worker_site_id: "", intended_item_id: null, target_quantity: 1, priority: "normal", due_date: null })).then((r) => r.json());
+    assert(noWorkerRes.error, "creating a WO with an empty worker_site_id is rejected, matching the mandatory-worker redesign");
+
+    const wo = await apiFetch("/work-orders", postJSON({ description: "Embroidery job", work_instructions: "", worker_site_id: workerRes.id, intended_item_id: null, target_quantity: 2, priority: "normal", due_date: null, related_customer_order_id: null }));
+    assert(wo.id, "createWO() with a real worker succeeds");
+
+    section("=== Issue material -> pick -> ship -> confirm receive (full two-step, via frontend actions) ===");
+    const lot = await apiFetch("/item-lots", postJSON({ item_id: rawItem.id, site_id: store.id, quantity: 30, source_type: "direct_intake", cost_total: 6000 }));
+    const issueRes = await apiFetch("/work-orders/" + wo.id + "/issue-material", postJSON({ lot_id: lot.id, quantity: 10 }));
+    assert(issueRes.dispatch_id, "issueMaterial()'s exact field names create a pending dispatch, not an immediate transfer");
+
+    const dispDetail = await apiFetch("/dispatches/" + issueRes.dispatch_id);
+    const dItem = dispDetail.items[0];
+    await apiFetch("/dispatches/" + issueRes.dispatch_id + "/scan", postJSON({ item_id: dItem.item_id, lot_id: dItem.lot_id, scanned_quantity: 10 }));
+    await apiFetch("/dispatches/" + issueRes.dispatch_id + "/ship", postJSON({ courier: "DTDC", tracking_id: "T1" }));
+
+    const workerStockBeforeConfirm = await apiFetch("/stock-by-site");
+    const workerEntry = workerStockBeforeConfirm.sites.find((s) => s.site.id === workerRes.id);
+    assert(!workerEntry || workerEntry.lots.length === 0, "CRITICAL: after shipping but before confirming receipt, the worker's site shows NOTHING — matches the two-step design exactly");
+
+    await apiFetch("/dispatches/" + issueRes.dispatch_id + "/receive", postJSON({ confirmations: [{ dispatch_item_id: dItem.id, received_quantity: 10 }] }));
+    const workerStockAfterConfirm = await apiFetch("/stock-by-site");
+    const workerEntryAfter = workerStockAfterConfirm.sites.find((s) => s.site.id === workerRes.id);
+    assert(workerEntryAfter.lots.length === 1 && workerEntryAfter.lots[0].quantity_balance === 10, "after confirming, the worker's stock now correctly shows 10");
+
+    section("=== Material return with wastage (return.js exact field names) ===");
+    const openIssues = await apiFetch("/material-issues-by-lot?lot_id=" + lot.id);
+    assert(openIssues.open_issues.length === 1, "the open issue is findable by scanning the original lot id");
+    const returnRes = await apiFetch("/material-issues/" + openIssues.open_issues[0].id + "/return", postJSON({ quantity_returned_stock: 2, quantity_wasted: 1 }));
+    assert(returnRes.ok, "confirmMaterialReturn()'s exact field names accepted");
+
+    section("=== Receive finished good, closing the WO ===");
+    const recvRes = await apiFetch("/work-orders/" + wo.id + "/receive", postJSON({ output_item_id: finishedItem.id, new_item_name: null, quantity: 2, labor_cost: 300, courier: "", tracking_id: "" }));
+    assert(recvRes.ok && recvRes.work_order_closed, "receiveWO()'s exact field set (no wastage field anymore) closes the work order");
+
+    section("=== Customer Order — simplified, then bill + ship ===");
+    const co = await apiFetch("/customer-orders", postJSON({ customer_party_id: anu.id, customer_name: "Anu", customer_phone: "", item_id: finishedItem.id, description: null, quantity: 1, tax_rate: 12, promised_delivery_date: null }));
+    assert(co.id, "createCO()'s simplified field set accepted, no cascade fields expected back");
+    const coDetail = await apiFetch("/customer-orders/" + co.id);
+    assert(coDetail.current_stock !== undefined, "viewCO()'s expected current_stock field is present");
+
+    const billRes = await apiFetch("/customer-orders/" + co.id + "/bill", postJSON({ sale_price: 5000, lot_id: null }));
+    assert(billRes.ok, "billCO()'s field set (sale_price + lot_id) accepted");
+    await apiFetch("/customer-orders/" + co.id + "/ship", postJSON({ courier: "BlueDart", tracking_id: "" }));
+    const coFinal = await apiFetch("/customer-orders/" + co.id);
+    assert(coFinal.status === "shipped", "order correctly moved through billed -> shipped");
+    await apiFetch("/customer-orders/" + co.id, patchJSON({ tracking_id: "LATE123" }));
+
+    section("=== Sales with tax, Expenses with category, Refunds ===");
+    const saleRes = await apiFetch("/sales", postJSON({ item_id: null, lot_id: null, quantity: 1, description: "Walk-in", sale_price: 1000, tax_rate: 5, customer_party_id: null, customer_name: null }));
+    assert(saleRes.tax_amount === 50 && saleRes.total_amount === 1050, "createSale()'s exact fields compute tax correctly");
+
+    const expCat = await apiFetch("/expense-categories", postJSON({ name: "Test Category" }));
+    const expRes = await apiFetch("/expenses", postJSON({ description: "Rent", expense_category_id: expCat.id, amount: 500 }));
+    assert(expRes.id, "createExpense()'s exact fields (expense_category_id, not free-text category) accepted");
+
+    const refundRes = await apiFetch("/refunds", postJSON({ sale_id: saleRes.id, amount: 100, reason: "test" }));
+    assert(refundRes.id, "createRefund() accepted");
+
+    section("=== Payments Receivable/Payable/Worker — exact allocation shape from submitPayment() ===");
+    const outstandingRes = await apiFetch("/outstanding-bills?party_id=" + anu.id + "&direction=receivable");
+    assert(Array.isArray(outstandingRes.bills), "loadOutstandingFor()'s expected shape present");
+
+    const supplierParty = await apiFetch("/parties", postJSON({ name: "TestSupplier", type: "supplier" }));
+    const workerParty = workerRes.worker_party_id;
+
+    const payRecv = await apiFetch("/payments", postJSON({ party_id: anu.id, direction: "receivable", amount: 100, reference: "", allocations: [] }));
+    assert(payRecv.id, "submitPayment('receivable')'s exact body shape accepted");
+    const payWorker = await apiFetch("/payments", postJSON({ party_id: workerParty, direction: "worker", amount: 50, allocations: [] }));
+    assert(payWorker.id, "submitPayment('worker') works identically");
+
+    section("=== General Journal + Ledger (account+date filter) ===");
+    const accounts = await apiFetch("/accounts");
+    assert(accounts.length > 10, "populateAccountDropdown()'s expected data present");
+    const cashAccount = accounts.find((a) => a.code === "1000");
+    const salesAccount = accounts.find((a) => a.code === "3900" || a.name.includes("Opening"));
+
+    const jeRes = await apiFetch("/journal-entries", postJSON({ date: "2026-08-01", description: "test manual entry", debit_account_id: cashAccount.id, credit_account_id: accounts.find((a) => a.code === "2100").id, amount: 25 }));
+    assert(jeRes.id, "createJournalEntry()'s exact field names accepted");
+
+    const ledgerRes = await apiFetch("/ledger?account_id=" + cashAccount.id);
+    assert(Array.isArray(ledgerRes.entries) && ledgerRes.entries.length > 0, "loadLedgerView()'s expected shape present, with real entries against Cash");
+
+    const pnlRes = await apiFetch("/reports/pnl");
+    assert(pnlRes.net_profit !== undefined, "loadPnL()'s expected fields present");
+
+    section("=== Photo upload end to end ===");
+    const fd = new FormData();
+    fd.append("photo", new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" }), "test.jpg");
+    const photoRes = await apiFetch("/items/" + finishedItem.id + "/photo", { method: "POST", body: fd });
+    assert(photoRes.ok, "real multipart photo upload still works");
+
+    section("=== Item edit (the previously-missing edit form) ===");
+    const editRes = await apiFetch("/items/" + finishedItem.id, patchJSON({ name: "Test Saree", color: "Red", price: 5500, cost: null, description: "" }));
+    assert(editRes.ok, "saveItemEdit()'s exact field set accepted — this is the fix for the original missing-edit-option problem");
+
+  } finally {
+    server.close();
+  }
+
+  console.log(`\n${passed} passed, ${failed} failed\n`);
+  if (failed > 0) process.exit(1);
+}
+
+run().catch((e) => { console.error("TEST HARNESS CRASHED:", e); process.exit(1); });

@@ -1,0 +1,12 @@
+name = "fabroses-v2"
+compatibility_date = "2026-07-01"
+pages_build_output_dir = "."
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fabroses-db"
+database_id = "f43a761a-e81a-42d6-a53b-67a925674562"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "fabroses-photos"
