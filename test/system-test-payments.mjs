@@ -16,8 +16,8 @@ async function run() {
   const partiesMod = await import("../functions/api/parties.js");
   const salesMod = await import("../functions/api/sales.js");
   const anu = await (await partiesMod.onRequestPost({ request: req({ name: "Anu", type: "customer" }), env })).json();
-  const sale1 = await (await salesMod.onRequestPost({ request: req({ description: "Sale 1", customer_party_id: anu.id, sale_price: 1000 }), env, data: {} })).json();
-  const sale2 = await (await salesMod.onRequestPost({ request: req({ description: "Sale 2", customer_party_id: anu.id, sale_price: 2000 }), env, data: {} })).json();
+  const sale1 = await (await salesMod.onRequestPost({ request: req({ lines: [{ description: "Sale 1", sale_price: 1000 }], customer_party_id: anu.id }), env, data: {} })).json();
+  const sale2 = await (await salesMod.onRequestPost({ request: req({ lines: [{ description: "Sale 2", sale_price: 2000 }], customer_party_id: anu.id }), env, data: {} })).json();
 
   section("=== Outstanding bills lists both, correctly ===");
   const outstandingMod = await import("../functions/api/outstanding-bills.js");

@@ -97,12 +97,133 @@ node test/system-test-reseller.mjs            # Reseller sales attribution via p
 node test/frontend-integration-test-v2.mjs    # Real HTTP, real frontend request shapes
 ```
 
+## QR camera scanning — added, but with a real limit on how it's been verified
+
+Every field that previously said "Scan or enter" without any actual scan
+capability behind it now has a real 📷 **Scan** button — Issue Material's
+lot field, the material return lookup, the Sales lot-override, Customer
+Order billing's lot-override, and My Work's ship-back item field. Scanning
+opens the camera, and for a field expecting an item's real internal ID
+(not its part-number code), it automatically looks up the code back to the
+right ID rather than just dropping raw scanned text into a field expecting
+a primary key.
+
+While fixing this, I also found and corrected a real inconsistency: the
+three places QR payloads get generated (right after creating an item, an
+item-only QR from the detail view, and an item+lot QR) used two different,
+incompatible formats. All three are now consistent.
+
+**Important honest limitation:** camera scanning requires an actual browser
+with camera and DOM access — neither exists in my testing environment, so
+this has only been verified by static code review (syntax, correct wiring,
+consistent payload format) — **not** by an actual scan. Please test this
+directly on a phone or laptop with a camera before relying on it; if the
+camera doesn't open, or a scan doesn't fill the right field, that's exactly
+the kind of thing that needs a real device to catch.
+
+## This round: everything deferred, now done — except one
+
+**Multi-line items**, across all four documents (Purchase Orders, Sales,
+Customer Orders, Supplier Bills) — each restructured into a real
+header-plus-line-items shape:
+- Purchase Orders: each line receives independently — different items can
+  arrive on different days, and the whole order's status is *derived* from
+  its lines, not set separately.
+- Sales: each line carries its own tax rate, its own stock consumption
+  (FIFO or scan-to-override), summing to one grand total.
+- Customer Orders: multiple items per order, billed all at once into a
+  single matching multi-line sale.
+- Supplier Bills: line up against specific PO lines — bill a partial
+  delivery without waiting for the rest.
+
+Two real bugs came out of testing this properly: a foreign-key ordering
+bug in the sales engine (line items were being inserted before the parent
+sale existed), and an unhandled crash in the customer-order billing
+endpoint (a validation check that threw outside any try/catch). Both
+fixed, both now covered by tests that would catch a regression.
+
+**Stock-by-Site** is now aggregate-by-default — one row per item per site,
+click "Show lots" to expand into the individual lots making up that total.
+
+**Lot quantities are now directly editable** — a real, previously-missing
+capability, with the correction logged (old value, new value) exactly like
+any other edit, plus a movement record showing the actual delta.
+
+## Still open — the one thing I genuinely can't fix without your help
+
+**The item-photo cross-contamination bug.** I've checked the upload
+endpoint and the cover-photo query multiple times now and both look
+correct on paper. Without the URL comparison I asked for early on (right-
+click each thumbnail, "copy image address," tell me if they're identical
+or different), I can't tell whether this is a data bug or something in how
+photos get served back out — and guessing at a fix for something I haven't
+actually diagnosed risks papering over the real cause.
+
+## This round: the worker flow, unblocked, plus real bug fixes
+
+You were specifically blocked on testing because the worker's side of the
+loop didn't exist — confirming material receipt, starting work, and
+shipping the finished piece back all had no real path. Fixed properly, not
+shortcut:
+
+- **Stages simplified to three, all but one automatic**: Order Placed →
+  Material Received (set when the worker confirms raw material arrived,
+  not when the store ships it) → Work Started (the one genuinely manual
+  step) → Work Shipped (set when the worker's return dispatch actually
+  ships). A test specifically proves you *can't* manually set Material
+  Received or Work Shipped directly — only the dispatch engine can.
+- **A real "My Work" tab for workers** — their own scoped queue, separate
+  from the store's Dispatch/Receive tabs entirely.
+- **The finished-good return is now genuinely two-step**, matching raw
+  material exactly: worker ships → nothing credited yet → store confirms →
+  *that's* the moment stock, cost, and labor get credited and the work
+  order closes. A test proves stock is still zero right up until that
+  final confirmation.
+- **Mismatch checking against the work order's intended item** — a
+  warning, overridable, with a `force:false` option if you actually want
+  it to hard-block instead.
+- **WIP photo upload** — this endpoint didn't exist at all; the work order
+  detail page was already trying to read photos from a table nothing
+  could ever write to.
+
+Plus real, confirmed bugs from testing:
+- **Every one of the 12 creation forms now actually resets** after saving
+  — previously 11 of 12 reset nothing at all, and the 12th reset one field
+  out of ten.
+- **Party and site dropdowns no longer silently default to the first
+  alphabetical entry** — this was a real risk of billing, paying, or
+  assigning work to the wrong person by simple inattention. Every one now
+  requires deliberate selection.
+- **Uploading a new item photo now actually updates what's shown** — it
+  was hardcoded to always show the very first photo ever uploaded,
+  regardless of anything added since.
+- **Full-size photo viewing** — click any thumbnail to see it enlarged;
+  previously only a small thumbnail existed anywhere, with no way to see
+  a photo properly.
+
+## Still open, not forgotten
+
+- **Multi-line items** for Purchase Orders, Sales, Customer Orders, and
+  Supplier Bills — a real structural change, deliberately not rushed
+  alongside everything else in this round.
+- **Camera-based scanning** — genuinely doesn't exist anywhere yet, despite
+  some labels implying it does.
+- **Stock-by-Site's aggregate-then-expand view**, and **lot quantity
+  editing** — confirmed real gaps, not yet built.
+- **The item-photo cross-contamination bug** — still can't diagnose this
+  one without the URL comparison originally asked for. If you can get me
+  that, I can actually fix it instead of guessing.
+
+## Testing this yourself before real use
+
+```
+npm test
+```
+97 tests across nine files. `test/system-test-worker-flow.mjs` is the one
+that specifically proves the worker loop end-to-end.
+
 ## Known gaps, stated honestly
 
-- **Stage automation** — moving a work order's stage forward automatically
-  on real events (material issued, dispatched) wasn't built; stages are
-  still advanced manually via the pill buttons. The "which stages should be
-  automatic" question was never fully answered, so nothing was guessed at.
 - **The Purchase Tab and Catalogue Tab's own specific mind-map workflows**
   (from the original requirements doc) were never confirmed against your
   actual intent — this build follows the problem-list conversation instead,

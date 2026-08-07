@@ -59,14 +59,16 @@ async function run() {
     const anu = await apiFetch("/parties", postJSON({ name: "Anu", type: "customer", opening_balance: 0 }));
     assert(anu.id, "createParty()'s field set accepted");
 
-    section("=== Purchase Order -> receive -> Supplier Bill (PO track) ===");
-    const po = await apiFetch("/purchase-orders", postJSON({ supplier_party_id: null, supplier_name: "Neelam Fabrics", item_id: rawItem.id, quantity_ordered: 50, rate: 200, expected_date: null }));
-    await apiFetch("/purchase-orders/" + po.id + "/receive", postJSON({ quantity_received: 50 }));
-    const sbRes = await apiFetch("/supplier-bills", postJSON({ purchase_order_id: po.id, supplier_party_id: null, supplier_name: "Neelam Fabrics", bill_number: "INV1", amount: 10000, description: "" }));
-    assert(sbRes.id, "createSupplierBill() (PO track) accepted");
+    section("=== Purchase Order -> receive -> Supplier Bill (PO track, now multi-line) ===");
+    const po = await apiFetch("/purchase-orders", postJSON({ supplier_party_id: null, supplier_name: "Neelam Fabrics", items: [{ item_id: rawItem.id, quantity_ordered: 50, rate: 200 }], expected_date: null }));
+    const poRow = (await apiFetch("/purchase-orders")).find((p) => p.id === po.id);
+    const poLine = poRow.items[0];
+    await apiFetch("/purchase-order-items/" + poLine.id + "/receive", postJSON({ quantity_received: 50 }));
+    const sbRes = await apiFetch("/supplier-bills", postJSON({ purchase_order_id: po.id, supplier_party_id: null, supplier_name: "Neelam Fabrics", bill_number: "INV1", lines: [{ purchase_order_item_id: poLine.id, item_id: rawItem.id, quantity: 50, rate: 200 }], description: "" }));
+    assert(sbRes.id, "createSupplierBill() (PO track, multi-line) accepted");
 
     section("=== Cash purchase track (no PO) ===");
-    const cashBill = await apiFetch("/supplier-bills", postJSON({ purchase_order_id: null, supplier_party_id: null, supplier_name: "Cash purchase", bill_number: "", amount: 200, description: "Buttons" }));
+    const cashBill = await apiFetch("/supplier-bills", postJSON({ purchase_order_id: null, supplier_party_id: null, supplier_name: "Cash purchase", bill_number: "", lines: [{ item_id: null, quantity: 1, rate: 200 }], description: "Buttons" }));
     assert(cashBill.id, "cash purchase (no PO) works as its own track");
 
     section("=== Work Order creation REQUIRES a worker (createWO()'s exact body) ===");
@@ -101,26 +103,33 @@ async function run() {
     const returnRes = await apiFetch("/material-issues/" + openIssues.open_issues[0].id + "/return", postJSON({ quantity_returned_stock: 2, quantity_wasted: 1 }));
     assert(returnRes.ok, "confirmMaterialReturn()'s exact field names accepted");
 
-    section("=== Receive finished good, closing the WO ===");
-    const recvRes = await apiFetch("/work-orders/" + wo.id + "/receive", postJSON({ output_item_id: finishedItem.id, new_item_name: null, quantity: 2, labor_cost: 300, courier: "", tracking_id: "" }));
-    assert(recvRes.ok && recvRes.work_order_closed, "receiveWO()'s exact field set (no wastage field anymore) closes the work order");
+    section("=== Receive finished good — now the full two-step ship-back flow, closing the WO ===");
+    const shipBackRes = await apiFetch("/work-orders/" + wo.id + "/ship-back", postJSON({ output_item_id: finishedItem.id, new_item_name: null, quantity: 2 }));
+    assert(shipBackRes.dispatch_id && shipBackRes.mismatch === false, "shipBackFromMyWork()'s exact field names create a return dispatch, correctly matching the intended item");
 
-    section("=== Customer Order — simplified, then bill + ship ===");
-    const co = await apiFetch("/customer-orders", postJSON({ customer_party_id: anu.id, customer_name: "Anu", customer_phone: "", item_id: finishedItem.id, description: null, quantity: 1, tax_rate: 12, promised_delivery_date: null }));
-    assert(co.id, "createCO()'s simplified field set accepted, no cascade fields expected back");
+    const shipBackDetail = await apiFetch("/dispatches/" + shipBackRes.dispatch_id);
+    const sbItem = shipBackDetail.items[0];
+    await apiFetch("/dispatches/" + shipBackRes.dispatch_id + "/scan", postJSON({ item_id: sbItem.item_id, lot_id: null, scanned_quantity: 2 }));
+    await apiFetch("/dispatches/" + shipBackRes.dispatch_id + "/ship", postJSON({ courier: "", tracking_id: "" }));
+    const recvRes = await apiFetch("/dispatches/" + shipBackRes.dispatch_id + "/receive", postJSON({ confirmations: [{ dispatch_item_id: sbItem.id, received_quantity: 2 }], labor_cost: 300 }));
+    assert(recvRes.ok && recvRes.work_order_closed, "the store's confirm-receipt (with labor_cost, the openReceiveConfirm()/submitReceiveConfirm() shape) closes the work order");
+
+    section("=== Customer Order — simplified, multi-line, then bill + ship ===");
+    const co = await apiFetch("/customer-orders", postJSON({ customer_party_id: anu.id, customer_name: "Anu", customer_phone: "", items: [{ item_id: finishedItem.id, quantity: 1, tax_rate: 12 }], promised_delivery_date: null }));
+    assert(co.id, "createCO()'s multi-line field set accepted, no cascade fields expected back");
     const coDetail = await apiFetch("/customer-orders/" + co.id);
-    assert(coDetail.current_stock !== undefined, "viewCO()'s expected current_stock field is present");
+    assert(coDetail.items[0].current_stock !== undefined, "viewCO()'s expected per-line current_stock field is present");
 
-    const billRes = await apiFetch("/customer-orders/" + co.id + "/bill", postJSON({ sale_price: 5000, lot_id: null }));
-    assert(billRes.ok, "billCO()'s field set (sale_price + lot_id) accepted");
+    const billRes = await apiFetch("/customer-orders/" + co.id + "/bill", postJSON({ line_prices: { [coDetail.items[0].id]: { sale_price: 5000 } } }));
+    assert(billRes.ok, "billCO()'s line_prices shape accepted");
     await apiFetch("/customer-orders/" + co.id + "/ship", postJSON({ courier: "BlueDart", tracking_id: "" }));
     const coFinal = await apiFetch("/customer-orders/" + co.id);
     assert(coFinal.status === "shipped", "order correctly moved through billed -> shipped");
     await apiFetch("/customer-orders/" + co.id, patchJSON({ tracking_id: "LATE123" }));
 
-    section("=== Sales with tax, Expenses with category, Refunds ===");
-    const saleRes = await apiFetch("/sales", postJSON({ item_id: null, lot_id: null, quantity: 1, description: "Walk-in", sale_price: 1000, tax_rate: 5, customer_party_id: null, customer_name: null }));
-    assert(saleRes.tax_amount === 50 && saleRes.total_amount === 1050, "createSale()'s exact fields compute tax correctly");
+    section("=== Sales with tax (multi-line shape), Expenses with category, Refunds ===");
+    const saleRes = await apiFetch("/sales", postJSON({ lines: [{ item_id: null, lot_id: null, quantity: 1, description: "Walk-in", sale_price: 1000, tax_rate: 5 }], customer_party_id: null, customer_name: null }));
+    assert(saleRes.lines[0].tax_amount === 50 && saleRes.total_amount === 1050, "createSale()'s multi-line fields compute tax correctly");
 
     const expCat = await apiFetch("/expense-categories", postJSON({ name: "Test Category" }));
     const expRes = await apiFetch("/expenses", postJSON({ description: "Rent", expense_category_id: expCat.id, amount: 500 }));

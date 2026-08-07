@@ -23,6 +23,7 @@ const RULES = [
   { prefix: "/api/dispatch-queue", roles: ["admin", "accountant", "dispatch"] },
   { prefix: "/api/receive-history", roles: ["admin", "accountant", "dispatch"] },
   { prefix: "/api/purchase-orders", roles: ["admin", "accountant", "dispatch"] },
+  { prefix: "/api/purchase-order-items", roles: ["admin", "accountant", "dispatch"] },
   { prefix: "/api/customer-orders", roles: ["admin", "accountant", "dispatch"] },
   { prefix: "/api/material-inward", roles: ["admin", "accountant", "dispatch"] },
   { prefix: "/api/worker-place", roles: ["admin", "worker"] },

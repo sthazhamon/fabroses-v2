@@ -141,12 +141,13 @@
       <h3>Purchase Orders</h3>
       <label>Supplier <button type="button" class="secondary btn-sm" onclick="addPartyInline('supplier','po-supplier-select')">+new</button></label>
       <select id="po-supplier-select"></select>
-      <label>Item (raw material)</label><select id="po-item"></select>
-      <div class="row"><div><label>Quantity ordered</label><input id="po-qty" type="number" step="0.1"></div><div><label>Rate (Rs)</label><input id="po-rate" type="number" step="0.01"></div></div>
       <label>Expected date</label><input id="po-date" type="date">
+      <div class="card"><h4 style="margin-top:0;">Line items</h4><div id="po-lines"></div>
+        <button type="button" class="secondary btn-sm" onclick="addPOLine()">+ Add line</button></div>
       <button class="primary" onclick="createPO()">Place order</button>
       <div id="po-result"></div>
       <div class="card"><h4 style="margin-top:0;">Orders</h4><div id="po-list" class="muted">Loading...</div></div>
+      <div id="po-detail"></div>
     </section>
 
     <section class="panel" id="panel-workorders">
@@ -162,6 +163,13 @@
       <div id="wo-result"></div>
       <div class="card"><h4 style="margin-top:0;">All work orders</h4><div id="order-list" class="muted">Loading...</div></div>
       <div id="wo-detail"></div>
+    </section>
+
+    <section class="panel" id="panel-mywork">
+      <h3>My Work</h3>
+      <p class="muted">Your own pending jobs, material to confirm, and finished pieces to ship back.</p>
+      <div id="mywork-content" class="muted">Loading...</div>
+      <div id="mywork-detail"></div>
     </section>
 
     <section class="panel" id="panel-dispatch">
@@ -180,7 +188,8 @@
       <p class="muted">Confirm what's actually arrived, or return raw material from a worker.</p>
       <div id="receive-queue" class="muted">Loading...</div>
       <div class="card"><h4 style="margin-top:0;">Return raw material</h4>
-        <label>Scan or enter the lot ID</label><input id="return-lot-id" placeholder="LOT-000001">
+        <label>Scan or enter the lot ID</label>
+        <div class="row"><input id="return-lot-id" placeholder="LOT-000001"><button type="button" class="secondary btn-sm" onclick="scanAndFill('return-lot-id','lot')" style="flex:0 0 90px;">📷 Scan</button></div>
         <button class="secondary" onclick="lookupLotReturns()">Look up</button>
         <div id="return-options"></div>
       </div>
@@ -192,10 +201,9 @@
       <label>Customer <button type="button" class="secondary btn-sm" onclick="addPartyInline('customer','co-customer-select')">+new</button></label>
       <select id="co-customer-select" onchange="autofillCustomerPhone()"></select>
       <label>Phone</label><input id="co-phone">
-      <label>Item (leave blank for fully custom)</label><select id="co-item"></select>
-      <label>Or describe custom request</label><textarea id="co-desc" rows="2"></textarea>
-      <div class="row"><div><label>Quantity</label><input id="co-qty" type="number" step="1" value="1"></div><div><label>Tax %</label><input id="co-tax" type="number" step="0.1" value="0"></div></div>
       <label>Promised delivery date</label><input id="co-promised" type="date">
+      <div class="card"><h4 style="margin-top:0;">Line items</h4><div id="co-lines"></div>
+        <button type="button" class="secondary btn-sm" onclick="addCOLine()">+ Add line</button></div>
       <button class="primary" onclick="createCO()">Log order</button>
       <div id="co-result"></div>
       <div class="card"><h4 style="margin-top:0;">All customer orders</h4><div id="co-list" class="muted">Loading...</div></div>
@@ -204,13 +212,10 @@
 
     <section class="panel" id="panel-sales">
       <h3>Sales</h3>
-      <label>Item (optional)</label><select id="s-item"></select>
-      <label>Scan/enter exact lot to override FIFO (optional)</label><input id="s-lot" placeholder="LOT-000001">
-      <div class="row"><div><label>Quantity</label><input id="s-qty" type="number" step="1" value="1"></div><div><label>Sale price (Rs, pre-tax)</label><input id="s-price" type="number" step="0.01"></div></div>
-      <label>Tax %</label><input id="s-tax" type="number" step="0.1" value="0">
-      <label>Description</label><input id="s-desc">
       <label>Customer or reseller <button type="button" class="secondary btn-sm" onclick="addPartyInline('customer','s-customer-select')">+new customer</button></label>
       <select id="s-customer-select"><option value="">-- none / cash sale --</option></select>
+      <div class="card"><h4 style="margin-top:0;">Line items</h4><div id="s-lines"></div>
+        <button type="button" class="secondary btn-sm" onclick="addSaleLine()">+ Add line</button></div>
       <button class="primary" onclick="createSale()">Record sale</button>
       <div id="sale-result"></div>
       <div class="card"><h4 style="margin-top:0;">Refunds</h4>
@@ -224,12 +229,14 @@
 
     <section class="panel" id="panel-purchases">
       <h3>Supplier Bills</h3>
-      <p class="muted">Enter a bill against a received PO, or a standalone cash purchase.</p>
-      <label>Type</label><select id="sb-type" onchange="toggleSupplierBillType()"><option value="po">Against a received Purchase Order</option><option value="cash">Cash purchase (no PO)</option></select>
-      <div id="sb-po-wrap"><label>Purchase order (received, unbilled)</label><select id="sb-po"></select></div>
+      <p class="muted">Enter a bill against specific received PO lines, or a standalone cash purchase.</p>
+      <label>Type</label><select id="sb-type" onchange="toggleSupplierBillType()"><option value="po">Against received PO line(s)</option><option value="cash">Cash purchase (no PO)</option></select>
+      <div id="sb-po-wrap"><label>Unbilled, received lines</label><div id="sb-po-lines" class="muted">Loading...</div></div>
+      <div id="sb-cash-wrap" style="display:none;"><label>Item (optional)</label><select id="sb-cash-item"></select>
+        <div class="row"><div><label>Quantity</label><input id="sb-cash-qty" type="number" step="0.1" value="1"></div><div><label>Rate (Rs)</label><input id="sb-cash-rate" type="number" step="0.01"></div></div></div>
       <label>Supplier <button type="button" class="secondary btn-sm" onclick="addPartyInline('supplier','sb-supplier-select')">+new</button></label>
       <select id="sb-supplier-select"></select>
-      <div class="row"><div><label>Bill number</label><input id="sb-number"></div><div><label>Amount</label><input id="sb-amount" type="number" step="0.01"></div></div>
+      <label>Bill number</label><input id="sb-number">
       <label>Description</label><input id="sb-desc">
       <button class="primary" onclick="createSupplierBill()">Record bill</button>
       <div id="sb-result"></div>
@@ -336,15 +343,16 @@
 
 <script>
 const API = "/api";
-const STAGES = ["Order Placed","Cutting","Handwork","Stitching","Quality Check","Correction Required","Packed","Dispatched","Delivered"];
+const STAGES = ["Order Placed","Material Received","Work Started","Work Shipped"];
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", roles: ["admin","accountant"] },
   { id: "catalogue", label: "Catalogue", roles: ["admin","accountant","dispatch"] },
   { id: "sites", label: "Sites", roles: ["admin","accountant","dispatch"] },
   { id: "po", label: "Purchase Orders", roles: ["admin","accountant","dispatch"] },
-  { id: "workorders", label: "Work Orders", roles: ["admin","accountant","dispatch","worker"] },
-  { id: "dispatch", label: "Dispatch", roles: ["admin","accountant","dispatch","worker"] },
+  { id: "workorders", label: "Work Orders", roles: ["admin","accountant","dispatch"] },
+  { id: "mywork", label: "My Work", roles: ["worker"] },
+  { id: "dispatch", label: "Dispatch", roles: ["admin","accountant","dispatch"] },
   { id: "receive", label: "Receive", roles: ["admin","accountant","dispatch"] },
   { id: "co", label: "Customer Orders", roles: ["admin","accountant","dispatch"] },
   { id: "sales", label: "Sales", roles: ["admin","accountant","dispatch"] },
@@ -401,12 +409,13 @@ function loadTabData(tabId){
     if(tabId==="dashboard") loadDashboard();
     if(tabId==="catalogue"){ populateMasterDropdowns(); loadItems(); }
     if(tabId==="sites"){ loadSites(); loadStockBySite(); }
-    if(tabId==="po"){ populatePartyDropdown("po-supplier-select","supplier"); populateItemDropdown("po-item","raw_material"); loadPOs(); }
+    if(tabId==="po"){ populatePartyDropdown("po-supplier-select","supplier"); loadPOs(); }
     if(tabId==="workorders"){ loadBacklog(); populateSiteDropdown("wo-worker","worker"); populateItemDropdown("wo-intended"); loadWOs(); }
+    if(tabId==="mywork") loadMyWork();
     if(tabId==="dispatch"){ loadDispatchQueue(); loadDispatchHistory(); }
     if(tabId==="receive"){ loadReceiveQueue(); loadReceiveHistory(); }
-    if(tabId==="co"){ populatePartyDropdown("co-customer-select","customer"); populateItemDropdown("co-item","finished_good"); loadCOs(); }
-    if(tabId==="sales"){ populateItemDropdown("s-item"); populateCustomerOrResellerDropdown("s-customer-select"); loadSalesForRefund(); loadSales(); }
+    if(tabId==="co"){ populatePartyDropdown("co-customer-select","customer"); loadCOs(); }
+    if(tabId==="sales"){ populateCustomerOrResellerDropdown("s-customer-select"); loadSalesForRefund(); loadSales(); }
     if(tabId==="purchases"){ populatePartyDropdown("sb-supplier-select","supplier"); loadUnbilledPOs(); loadSupplierBills(); }
     if(tabId==="expenses"){ populateExpenseCategoryDropdown(); loadExpenses(); }
     if(tabId==="receivable") populatePartyDropdown("recv-party","customer",false,true);
@@ -429,7 +438,7 @@ async function populateItemDropdown(selectId, typeFilter){
 async function populateSiteDropdown(selectId, typeFilter){
   const list = await apiFetch("/sites");
   const filtered = typeFilter ? list.filter(function(s){return s.site_type===typeFilter;}) : list;
-  document.getElementById(selectId).innerHTML = filtered.map(function(s){return '<option value="'+s.id+'">'+s.name+'</option>';}).join("");
+  document.getElementById(selectId).innerHTML = '<option value="">-- select --</option>' + filtered.map(function(s){return '<option value="'+s.id+'">'+s.name+'</option>';}).join("");
 }
 let allPartiesCache = [];
 async function populatePartyDropdown(selectId, typeFilter, includeNoneCash, keepValue){
@@ -437,7 +446,8 @@ async function populatePartyDropdown(selectId, typeFilter, includeNoneCash, keep
   const filtered = typeFilter ? allPartiesCache.filter(function(p){return p.type===typeFilter;}) : allPartiesCache;
   const sel = document.getElementById(selectId);
   const current = keepValue ? sel.value : null;
-  sel.innerHTML = (includeNoneCash?'<option value="">-- none / cash --</option>':'') + filtered.map(function(p){return '<option value="'+p.id+'" data-phone="'+(p.phone||"")+'">'+p.name+' (Rs '+p.balance+')</option>';}).join("");
+  const blankLabel = includeNoneCash ? "-- none / cash --" : "-- select --";
+  sel.innerHTML = '<option value="">'+blankLabel+'</option>' + filtered.map(function(p){return '<option value="'+p.id+'" data-phone="'+(p.phone||"")+'">'+p.name+' (Rs '+p.balance+')</option>';}).join("");
   if(current) sel.value = current;
 }
 async function addPartyInline(type, selectId){
@@ -500,6 +510,67 @@ async function loadDashboard(){
 }
 
 // ---------------- Catalogue / QR ----------------
+// ---------------- QR camera scanning ----------------
+let __activeScanner = null;
+function openScanner(onDecoded){
+  const overlay = document.createElement("div");
+  overlay.id = "scan-overlay";
+  overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;";
+  overlay.innerHTML = '<div id="scan-viewport" style="width:90%;max-width:360px;"></div>'+
+    '<p style="color:#fff;margin-top:12px;">Point the camera at a QR code</p>'+
+    '<button class="secondary" style="width:auto;padding:10px 24px;" onclick="closeScanner()">Cancel</button>'+
+    '<p id="scan-error" style="color:#f88;"></p>';
+  document.body.appendChild(overlay);
+
+  __activeScanner = new Html5Qrcode("scan-viewport");
+  __activeScanner.start(
+    { facingMode: "environment" }, { fps: 10, qrbox: 220 },
+    function(decodedText){
+      const result = decodedText;
+      closeScanner();
+      onDecoded(result);
+    },
+    function(){ /* per-frame scan miss, ignore */ }
+  ).catch(function(err){
+    document.getElementById("scan-error").textContent = "Couldn't access the camera: "+err;
+  });
+}
+function closeScanner(){
+  const overlay = document.getElementById("scan-overlay");
+  if(__activeScanner){ __activeScanner.stop().catch(function(){}).finally(function(){ __activeScanner = null; }); }
+  if(overlay) document.body.removeChild(overlay);
+}
+// Parses the standard payload (itemCodeOrId, optionally "|" + lotId) and
+// fills the right field. For an item-id field, resolves a part-number code
+// back to the real internal ID via a lookup — the QR encodes the code, not
+// the primary key, whenever a code exists.
+async function scanAndFill(fieldId, mode){
+  openScanner(async function(decoded){
+    const parts = decoded.split("|");
+    if(mode === "lot"){
+      if(!parts[1]){ showError("That QR doesn't include a lot — it's an item-only code."); return; }
+      document.getElementById(fieldId).value = parts[1];
+    } else {
+      let itemId = parts[0];
+      if(!itemId.startsWith("ITM-")){
+        try{
+          const matches = await apiFetch("/items");
+          const found = matches.find(function(i){return i.item_code===itemId;});
+          if(found) itemId = found.id;
+        }catch(e){ /* fall through with raw value if lookup fails */ }
+      }
+      document.getElementById(fieldId).value = itemId;
+    }
+  });
+}
+
+function viewFullPhoto(r2Key){
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;";
+  overlay.innerHTML = '<img src="/api/photo/'+r2Key+'" style="max-width:92%;max-height:92%;border-radius:8px;">';
+  overlay.onclick = function(){ document.body.removeChild(overlay); };
+  document.body.appendChild(overlay);
+}
 function printQR(text, label){
   const area = document.getElementById("qr-print-area");
   area.innerHTML = "";
@@ -534,8 +605,17 @@ async function createItem(){
     const photoFile=document.getElementById("it-photo").files[0];
     if(photoFile){ const fd=new FormData(); fd.append("photo",photoFile); await apiFetch("/items/"+res.id+"/photo",{method:"POST",body:fd}); }
     document.getElementById("item-result").innerHTML='<p style="color:var(--ok);">Added '+res.id+(res.item_code?' — part number: <b>'+res.item_code+'</b>':'')+
-      ' <button class="secondary btn-sm" onclick=\'printQR("'+res.id+(res.item_code?"|"+res.item_code:"")+'","'+name+'")\'>Print QR</button></p>';
+      ' <button class="secondary btn-sm" onclick=\'printQR("'+(res.item_code||res.id)+'","'+name+'")\'>Print QR</button></p>';
     document.getElementById("it-name").value="";
+    document.getElementById("it-category").value="";
+    document.getElementById("it-fabric").value="";
+    document.getElementById("it-worktype").value="";
+    document.getElementById("it-pattern").value="";
+    document.getElementById("it-color").value="";
+    document.getElementById("it-price").value="";
+    document.getElementById("it-cost").value="";
+    document.getElementById("it-desc").value="";
+    document.getElementById("it-photo").value="";
     loadItems();
   }catch(e){showError(e.message);}
 }
@@ -547,7 +627,7 @@ async function loadItems(typeFilter){
     const list=await apiFetch("/items"+q);
     if(!list.length){document.getElementById("item-list").innerHTML="No items yet.";return;}
     const cards=list.map(function(i){
-      const img=i.cover_photo?'<img src="/api/photo/'+i.cover_photo+'">':'<div style="height:90px;background:var(--cream);"></div>';
+      const img=i.cover_photo?'<img src="/api/photo/'+i.cover_photo+'" onclick="viewFullPhoto(\''+i.cover_photo+'\')" style="cursor:zoom-in;">':'<div style="height:90px;background:var(--cream);"></div>';
       return '<div class="item-card">'+img+'<div class="pc-body"><p class="pc-name">'+i.name+'</p>'+
         '<p class="pc-meta">'+i.item_type+' | stock: '+i.total_stock+'</p>'+
         '<p class="pc-meta" style="color:var(--rose-dark);font-weight:600;">'+(i.item_code||i.id)+'</p>'+
@@ -561,8 +641,10 @@ async function viewItem(id){
     const it=await apiFetch("/items/"+id);
     const lotRows=it.lots_by_site.map(function(l){return '<tr><td>'+l.id+'</td><td>'+l.site_name+'</td><td>'+l.quantity_balance+'</td><td>'+l.source_type+'</td>'+
       '<td><button class="secondary btn-sm" onclick=\'printQR("'+(it.item_code||it.id)+"|"+l.id+'","'+it.name+' - '+l.id+'")\'>QR</button></td></tr>';}).join("");
+    const photoThumbs = (it.photos||[]).map(function(p){return '<img src="/api/photo/'+p.r2_key+'" onclick="viewFullPhoto(\''+p.r2_key+'\')" style="width:70px;height:70px;object-fit:cover;border-radius:6px;margin:3px;cursor:zoom-in;">';}).join("");
     document.getElementById("item-detail").innerHTML='<div class="card"><h4 style="margin-top:0;">'+it.name+'</h4>'+
       '<p>'+(it.item_code||it.id)+' | Total stock: '+it.total_stock+'</p>'+
+      (photoThumbs?'<div>'+photoThumbs+'</div>':'<p class="muted">No photos yet.</p>')+
       '<button class="secondary btn-sm" onclick=\'printQR("'+(it.item_code||it.id)+'","'+it.name+'")\'>Print item QR</button>'+
       '<h4>Edit</h4>'+
       '<label>Name</label><input id="ei-name" value="'+it.name.replace(/"/g,"&quot;")+'">'+
@@ -597,6 +679,7 @@ async function createSite(){
   try{
     const res=await apiFetch("/sites",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:document.getElementById("site-name").value.trim(),site_type:document.getElementById("site-type").value})});
     document.getElementById("site-result").innerHTML='<p style="color:var(--ok);">Added '+res.id+'</p>';
+    document.getElementById("site-name").value="";
     loadSites();
   }catch(e){showError(e.message);}
 }
@@ -607,27 +690,74 @@ async function loadSites(){
     document.getElementById("site-list").innerHTML=list.length?'<table><tr><th>ID</th><th>Name</th><th>Type</th></tr>'+rows+'</table>':"No sites yet.";
   }catch(e){document.getElementById("site-list").textContent=e.message;}
 }
+let __stockBySiteRaw = null;
 async function loadStockBySite(){
   try{
-    const report=await apiFetch("/stock-by-site");
-    const html=report.sites.map(function(entry){
-      const rows=entry.lots.map(function(l){return '<tr><td>'+l.item_name+'</td><td>'+l.quantity_balance+'</td></tr>';}).join("");
-      return '<p><b>'+entry.site.name+'</b> ('+entry.site.site_type+')</p>'+(entry.lots.length?'<table><tr><th>Item</th><th>Qty</th></tr>'+rows+'</table>':'<p class="muted">Empty</p>');
+    __stockBySiteRaw = await apiFetch("/stock-by-site");
+    const html=__stockBySiteRaw.sites.map(function(entry){
+      const byItem = {};
+      entry.lots.forEach(function(l){
+        if(!byItem[l.item_id]) byItem[l.item_id] = { item_name: l.item_name, total: 0, lots: [] };
+        byItem[l.item_id].total += l.quantity_balance;
+        byItem[l.item_id].lots.push(l);
+      });
+      const rows = Object.keys(byItem).map(function(itemId){
+        const agg = byItem[itemId];
+        const rowId = "agg-"+entry.site.id+"-"+itemId;
+        return '<tr><td>'+agg.item_name+'</td><td>'+agg.total+'</td><td><button class="secondary btn-sm" onclick="toggleLotExpand(\''+rowId+'\')">Show lots</button></td></tr>'+
+          '<tr id="'+rowId+'" style="display:none;"><td colspan="3">'+agg.lots.map(function(l){return '<div class="row" style="margin:4px 0;"><span style="flex:2;">'+l.id+'</span>'+
+            '<input id="lotqty-'+l.id+'" type="number" step="0.1" value="'+l.quantity_balance+'" style="flex:1;">'+
+            '<button class="secondary btn-sm" onclick="saveLotQty(\''+l.id+'\')">Save</button></div>';}).join("")+'</td></tr>';
+      }).join("");
+      return '<p><b>'+entry.site.name+'</b> ('+entry.site.site_type+')</p>'+(rows?'<table><tr><th>Item</th><th>Total qty</th><th></th></tr>'+rows+'</table>':'<p class="muted">Empty</p>');
     }).join("");
     document.getElementById("stock-by-site").innerHTML=html||"No sites yet.";
   }catch(e){document.getElementById("stock-by-site").textContent=e.message;}
 }
+function toggleLotExpand(rowId){
+  const row = document.getElementById(rowId);
+  row.style.display = row.style.display==="none" ? "table-row" : "none";
+}
+async function saveLotQty(lotId){
+  try{
+    const newQty = parseFloat(document.getElementById("lotqty-"+lotId).value);
+    await apiFetch("/item-lots/"+lotId,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_balance:newQty})});
+    loadStockBySite();
+  }catch(e){showError(e.message);}
+}
 
 // ---------------- Purchase Orders ----------------
+let poLineCount = 0;
+async function addPOLine(){
+  poLineCount++;
+  const lineId = "poline-"+poLineCount;
+  const itemOptions = await apiFetch("/items?item_type=raw_material");
+  const optionsHtml = '<option value="">-- item --</option>'+itemOptions.map(function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+'</option>';}).join("");
+  const row = document.createElement("div");
+  row.className = "card"; row.id = lineId;
+  row.innerHTML = '<label>Item</label><select class="po-line-item">'+optionsHtml+'</select>'+
+    '<div class="row"><div><label>Quantity ordered</label><input class="po-line-qty" type="number" step="0.1"></div><div><label>Rate (Rs)</label><input class="po-line-rate" type="number" step="0.01"></div></div>'+
+    '<button type="button" class="secondary btn-sm" onclick="document.getElementById(\''+lineId+'\').remove()">Remove line</button>';
+  document.getElementById("po-lines").appendChild(row);
+}
 async function createPO(){
   try{
     const supplierSel = document.getElementById("po-supplier-select");
     const supplierParty = allPartiesCache.find(function(p){return p.id===supplierSel.value;});
+    const lineRows = document.querySelectorAll("#po-lines .card");
+    if(!lineRows.length){ alert("Add at least one line item"); return; }
+    const items = Array.from(lineRows).map(function(row){return {
+      item_id: row.querySelector(".po-line-item").value,
+      quantity_ordered: parseFloat(row.querySelector(".po-line-qty").value),
+      rate: parseFloat(row.querySelector(".po-line-rate").value)||null,
+    };});
     const res=await apiFetch("/purchase-orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      supplier_party_id:supplierSel.value, supplier_name:supplierParty?supplierParty.name:"", item_id:document.getElementById("po-item").value,
-      quantity_ordered:parseFloat(document.getElementById("po-qty").value), rate:parseFloat(document.getElementById("po-rate").value)||null,
+      supplier_party_id:supplierSel.value, supplier_name:supplierParty?supplierParty.name:"", items:items,
       expected_date:document.getElementById("po-date").value||null })});
     document.getElementById("po-result").innerHTML='<p style="color:var(--ok);">Order placed: '+res.id+'</p>';
+    document.getElementById("po-supplier-select").value="";
+    document.getElementById("po-date").value="";
+    document.getElementById("po-lines").innerHTML="";
     loadPOs();
   }catch(e){showError(e.message);}
 }
@@ -635,17 +765,29 @@ async function loadPOs(){
   try{
     const list=await apiFetch("/purchase-orders");
     const rows=list.map(function(po){
-      const recvForm = po.status!=="received" ?
-        '<input id="po-recv-'+po.id+'" type="number" step="0.1" placeholder="Qty" style="width:70px;display:inline-block;"> '+
-        '<button class="secondary btn-sm" onclick="receivePO(\''+po.id+'\')">Receive</button>' : (po.bill_status==="not_billed"?'<span class="warn-row">needs bill</span>':'billed');
-      return '<tr><td>'+po.id+'<br>'+(po.item_name||"")+'</td><td>'+po.supplier_name+'</td><td>'+po.quantity_received+'/'+po.quantity_ordered+'</td><td>'+po.status+'</td><td>'+recvForm+'</td></tr>';
+      return '<tr><td>'+po.id+'</td><td>'+po.supplier_name+'</td><td>'+po.items.length+' line(s)</td><td>'+po.status+'</td>'+
+        '<td><button class="secondary btn-sm" onclick="viewPO(\''+po.id+'\')">View</button></td></tr>';
     }).join("");
-    document.getElementById("po-list").innerHTML=list.length?'<table><tr><th>Order</th><th>Supplier</th><th>Progress</th><th>Status</th><th></th></tr>'+rows+'</table>':"No orders yet.";
+    document.getElementById("po-list").innerHTML=list.length?'<table><tr><th>Order</th><th>Supplier</th><th>Lines</th><th>Status</th><th></th></tr>'+rows+'</table>':"No orders yet.";
   }catch(e){document.getElementById("po-list").textContent=e.message;}
 }
-async function receivePO(id){
-  const qty=parseFloat(document.getElementById("po-recv-"+id).value); if(!qty){alert("Enter quantity");return;}
-  try{ await apiFetch("/purchase-orders/"+id+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_received:qty})}); loadPOs(); }catch(e){showError(e.message);}
+async function viewPO(id){
+  try{
+    const list = await apiFetch("/purchase-orders");
+    const po = list.find(function(p){return p.id===id;});
+    const rows = po.items.map(function(line){
+      const recvForm = line.quantity_received < line.quantity_ordered ?
+        '<input id="po-recv-'+line.id+'" type="number" step="0.1" placeholder="Qty" style="width:70px;display:inline-block;"> '+
+        '<button class="secondary btn-sm" onclick="receivePOLine(\''+line.id+'\',\''+id+'\')">Receive</button>' : "fully received";
+      return '<tr><td>'+line.item_name+'</td><td>'+line.quantity_received+'/'+line.quantity_ordered+'</td><td>'+recvForm+'</td></tr>';
+    }).join("");
+    document.getElementById("po-detail").innerHTML = '<div class="card"><div class="code-big">'+po.id+'</div><p>'+po.supplier_name+' | Status: '+po.status+' | Bill: '+po.bill_status+'</p>'+
+      '<table><tr><th>Item</th><th>Progress</th><th></th></tr>'+rows+'</table></div>';
+  }catch(e){showError(e.message);}
+}
+async function receivePOLine(lineId, poId){
+  const qty=parseFloat(document.getElementById("po-recv-"+lineId).value); if(!qty){alert("Enter quantity");return;}
+  try{ await apiFetch("/purchase-order-items/"+lineId+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_received:qty})}); viewPO(poId); loadPOs(); }catch(e){showError(e.message);}
 }
 
 // ---------------- Work Orders ----------------
@@ -654,9 +796,14 @@ async function loadBacklog(){
     const list = await apiFetch("/customer-orders");
     const backlog = list.filter(function(o){return !o.linked_work_order_id && o.status!=="cancelled" && o.status!=="billed" && o.status!=="shipped";});
     if(!backlog.length){document.getElementById("wo-backlog").innerHTML="Nothing waiting on a work order.";return;}
-    const rows = backlog.map(function(o){return '<tr><td>'+o.id+'</td><td>'+o.customer_name+'</td><td>'+(o.item_name||o.description)+'</td>'+
-      '<td><button class="secondary btn-sm" onclick="prefillWOFromOrder(\''+o.id+'\',\''+(o.item_id||"")+'\',\''+o.quantity+'\')">Create WO for this</button></td></tr>';}).join("");
-    document.getElementById("wo-backlog").innerHTML = '<table><tr><th>Order</th><th>Customer</th><th>Item</th><th></th></tr>'+rows+'</table>';
+    const rows = [];
+    backlog.forEach(function(o){
+      o.items.forEach(function(line){
+        rows.push('<tr><td>'+o.id+'</td><td>'+o.customer_name+'</td><td>'+(line.item_name||line.description)+' x'+line.quantity+'</td>'+
+          '<td><button class="secondary btn-sm" onclick="prefillWOFromOrder(\''+o.id+'\',\''+(line.item_id||"")+'\',\''+line.quantity+'\')">Create WO for this</button></td></tr>');
+      });
+    });
+    document.getElementById("wo-backlog").innerHTML = '<table><tr><th>Order</th><th>Customer</th><th>Item</th><th></th></tr>'+rows.join("")+'</table>';
   }catch(e){document.getElementById("wo-backlog").textContent=e.message;}
 }
 let prefillCustomerOrderId = null;
@@ -678,6 +825,12 @@ async function createWO(){
       due_date:document.getElementById("wo-due").value||null, related_customer_order_id: prefillCustomerOrderId })});
     document.getElementById("wo-result").innerHTML='<p style="color:var(--ok);">Created '+res.id+'</p>';
     prefillCustomerOrderId = null;
+    document.getElementById("wo-desc").value="";
+    document.getElementById("wo-instructions").value="";
+    document.getElementById("wo-worker").value="";
+    document.getElementById("wo-intended").value="";
+    document.getElementById("wo-target").value="1";
+    document.getElementById("wo-due").value="";
     loadWOs(); loadBacklog();
   }catch(e){showError(e.message);}
 }
@@ -693,21 +846,19 @@ async function viewWO(id){
   try{
     const w=await apiFetch("/work-orders/"+id);
     const issueRows=(w.issues||[]).map(function(i){return '<tr><td>'+i.item_name+'</td><td>'+i.quantity_issued+'</td><td>'+i.status+'</td></tr>';}).join("");
-    const pills = STAGES.map(function(s){return '<span class="stage-pill'+(s===w.stage?' current':'')+'" onclick="advanceStage(\''+w.id+'\',\''+s+'\')">'+s+'</span>';}).join("");
+    const canStart = w.stage==="Order Placed" || w.stage==="Material Received";
     document.getElementById("wo-detail").innerHTML='<div class="card"><div class="code-big">'+w.id+'</div>'+
       '<p>'+w.description+'</p><p>Worker: <b>'+(w.worker_site_name||"")+'</b> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
-      '<div class="stage-pills">'+pills+'</div>'+
+      '<p>Stage: <span class="stage-badge">'+w.stage+'</span>'+(canStart?' <button class="secondary btn-sm" onclick="advanceStage(\''+w.id+'\',\'Work Started\')">Mark Work Started</button>':'')+'</p>'+
+      '<p class="muted">Material Received and Work Shipped are set automatically by the dispatch engine, not manually here.</p>'+
       '<h4>Reassign worker</h4><select id="wo-reassign"></select><button class="secondary" onclick="reassignWorker(\''+w.id+'\')">Reassign</button><div id="wo-reassign-msg"></div>'+
       (issueRows?'<h4>Material issued</h4><table><tr><th>Item</th><th>Qty</th><th>Status</th></tr>'+issueRows+'</table>':'')+
-      '<h4>Issue material (creates a pending dispatch)</h4><label>Lot ID</label><input id="wo-issue-lot" placeholder="LOT-000001">'+
+      '<h4>Issue material (creates a pending dispatch)</h4><label>Lot ID</label><div class="row"><input id="wo-issue-lot" placeholder="LOT-000001"><button type="button" class="secondary btn-sm" onclick="scanAndFill(\'wo-issue-lot\',\'lot\')" style="flex:0 0 90px;">📷 Scan</button></div>'+
       '<label>Quantity</label><input id="wo-issue-qty" type="number" step="0.1">'+
       '<button class="secondary" onclick="issueMaterial(\''+w.id+'\')">Create dispatch</button><div id="wo-issue-msg"></div>'+
-      '<h4>Receive finished good</h4><label>Existing item ID (or leave blank)</label><input id="wo-recv-item">'+
-      '<label>Or new item name</label><input id="wo-recv-newname">'+
-      '<label>Quantity</label><input id="wo-recv-qty" type="number" step="1" value="1">'+
-      '<label>Labor cost</label><input id="wo-recv-labor" type="number" step="0.01">'+
-      '<label>Courier (optional)</label><input id="wo-recv-courier"><label>Tracking</label><input id="wo-recv-tracking">'+
-      '<button class="secondary" onclick="receiveWO(\''+w.id+'\')">Receive</button><div id="wo-recv-msg"></div></div>';
+      '<p class="muted">Receiving the finished good back now happens through the Dispatch/Receive tabs, once the worker ships it — see the Receive tab.</p>'+
+      (w.photos&&w.photos.length?'<p class="muted">'+w.photos.length+' work-in-progress photo(s) on file.</p>':'')+
+      '</div>';
     await populateSiteDropdown("wo-reassign","worker");
   }catch(e){showError(e.message);}
 }
@@ -726,17 +877,92 @@ async function issueMaterial(id){
     document.getElementById("wo-issue-msg").innerHTML='<p style="color:var(--ok);">Dispatch '+res.dispatch_id+' created — go to the Dispatch tab to pick, confirm, and send it.</p>';
   }catch(e){showError(e.message);}
 }
-async function receiveWO(id){
+
+// ---------------- My Work (worker-scoped) ----------------
+async function loadMyWork(){
   try{
-    const output_item_id=document.getElementById("wo-recv-item").value.trim()||null;
-    const new_item_name=document.getElementById("wo-recv-newname").value.trim()||null;
-    const quantity=parseFloat(document.getElementById("wo-recv-qty").value);
-    const labor_cost=parseFloat(document.getElementById("wo-recv-labor").value)||null;
-    const courier=document.getElementById("wo-recv-courier").value.trim();
-    const tracking_id=document.getElementById("wo-recv-tracking").value.trim();
-    const res=await apiFetch("/work-orders/"+id+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({output_item_id:output_item_id,new_item_name:new_item_name,quantity:quantity,labor_cost:labor_cost,courier:courier,tracking_id:tracking_id})});
-    document.getElementById("wo-recv-msg").innerHTML='<p style="color:var(--ok);">Received into '+res.item_id+(res.work_order_closed?' — work order CLOSED':'')+'</p>';
-    viewWO(id); loadWOs();
+    const wp = await apiFetch("/worker-place");
+    const orderRows = wp.pending_orders.map(function(o){return '<tr><td>'+o.id+'</td><td>'+o.description+'</td><td><span class="stage-badge">'+o.stage+'</span></td><td>'+o.received_quantity_total+'/'+o.target_quantity+'</td>'+
+      '<td><button class="secondary btn-sm" onclick="viewMyWorkOrder(\''+o.id+'\')">Open</button></td></tr>';}).join("");
+    const incomingRows = wp.incoming_to_confirm.map(function(d){return '<tr><td>'+d.id+'</td><td>'+d.dispatch_type+'</td>'+
+      '<td><button class="secondary btn-sm" onclick="confirmMyIncoming(\''+d.id+'\')">Confirm received</button></td></tr>';}).join("");
+    const outgoingRows = wp.outgoing_to_ship.map(function(d){return '<tr><td>'+d.id+'</td><td>'+d.status+'</td>'+
+      '<td><button class="secondary btn-sm" onclick="manageMyOutgoing(\''+d.id+'\')">Pick / Ship</button></td></tr>';}).join("");
+    document.getElementById("mywork-content").innerHTML =
+      '<h4>Material waiting for me to confirm ('+wp.incoming_to_confirm.length+')</h4>'+
+      (wp.incoming_to_confirm.length?'<table><tr><th>Dispatch</th><th>Type</th><th></th></tr>'+incomingRows+'</table>':'<p class="muted">Nothing waiting.</p>')+
+      '<h4>My pending jobs ('+wp.pending_orders.length+')</h4>'+
+      (wp.pending_orders.length?'<table><tr><th>WO</th><th>Desc</th><th>Stage</th><th>Progress</th><th></th></tr>'+orderRows+'</table>':'<p class="muted">Nothing pending.</p>')+
+      '<h4>My outgoing to pick/ship ('+wp.outgoing_to_ship.length+')</h4>'+
+      (wp.outgoing_to_ship.length?'<table><tr><th>Dispatch</th><th>Status</th><th></th></tr>'+outgoingRows+'</table>':'<p class="muted">Nothing pending.</p>')+
+      '<h4>My own stock</h4>'+(wp.own_stock.length?'<table><tr><th>Item</th><th>Qty</th></tr>'+wp.own_stock.map(function(l){return '<tr><td>'+l.item_name+'</td><td>'+l.quantity_balance+'</td></tr>';}).join("")+'</table>':'<p class="muted">None.</p>');
+  }catch(e){document.getElementById("mywork-content").textContent=e.message;}
+}
+async function confirmMyIncoming(dispatchId){
+  try{
+    const d = await apiFetch("/dispatches/"+dispatchId);
+    const confirmations = d.items.map(function(it){return {dispatch_item_id:it.id, received_quantity:it.scanned_quantity};});
+    await apiFetch("/dispatches/"+dispatchId+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirmations:confirmations})});
+    loadMyWork();
+  }catch(e){showError(e.message);}
+}
+async function manageMyOutgoing(dispatchId){
+  try{
+    const d = await apiFetch("/dispatches/"+dispatchId);
+    const itemRows = d.items.map(function(it){
+      if(it.scanned_quantity===null){
+        return '<tr><td>'+it.item_name+'</td><td>'+it.expected_quantity+'</td><td>'+
+          '<button class="secondary btn-sm" onclick="confirmMyPick(\''+dispatchId+'\',\''+it.item_id+'\',\''+it.id+'\',\''+it.expected_quantity+'\')">Confirm pick</button></td></tr>';
+      }
+      return '<tr><td>'+it.item_name+'</td><td>'+it.scanned_quantity+'</td><td>picked</td></tr>';
+    }).join("");
+    const allPicked = d.items.every(function(it){return it.scanned_quantity!==null;});
+    document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+d.id+'</div><table><tr><th>Item</th><th>Qty</th><th></th></tr>'+itemRows+'</table>'+
+      (allPicked?'<label>Courier</label><input id="mywork-ship-courier"><label>Tracking</label><input id="mywork-ship-tracking">'+
+        '<button class="secondary" onclick="shipMyOutgoing(\''+dispatchId+'\')">Ship it</button><div id="mywork-ship-msg"></div>':'')+
+      '</div>';
+  }catch(e){showError(e.message);}
+}
+async function confirmMyPick(dispatchId, itemId, dispatchItemId, expectedQty){
+  try{ await apiFetch("/dispatches/"+dispatchId+"/scan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item_id:itemId,lot_id:null,scanned_quantity:parseFloat(expectedQty)})}); manageMyOutgoing(dispatchId); }catch(e){showError(e.message);}
+}
+async function shipMyOutgoing(dispatchId){
+  try{ await apiFetch("/dispatches/"+dispatchId+"/ship",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({courier:document.getElementById("mywork-ship-courier").value.trim(),tracking_id:document.getElementById("mywork-ship-tracking").value.trim()})});
+    document.getElementById("mywork-detail").innerHTML='<p style="color:var(--ok);">Shipped — waiting for the store to confirm receipt.</p>'; loadMyWork(); }catch(e){showError(e.message);}
+}
+async function viewMyWorkOrder(id){
+  try{
+    const w = await apiFetch("/work-orders/"+id);
+    document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+w.id+'</div><p>'+w.description+'</p>'+
+      '<p>Stage: <span class="stage-badge">'+w.stage+'</span> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
+      (w.stage==="Material Received"?'<button class="secondary" onclick="startMyWork(\''+w.id+'\')">Start work</button><div id="mywork-start-msg"></div>':'')+
+      '<h4>Add a work-in-progress photo</h4><input type="file" accept="image/*" id="mywork-photo">'+
+      '<button class="secondary" onclick="uploadMyWIPPhoto(\''+w.id+'\')">Upload</button><div id="mywork-photo-msg"></div>'+
+      (w.photos&&w.photos.length?'<p class="muted">'+w.photos.length+' photo(s) added so far.</p>':'')+
+      '<h4>Ship the finished piece back</h4><label>Existing item ID (or leave blank)</label><div class="row"><input id="mywork-ship-item"><button type="button" class="secondary btn-sm" onclick="scanAndFill(\'mywork-ship-item\',\'item\')" style="flex:0 0 90px;">📷 Scan</button></div>'+
+      '<label>Or new item name</label><input id="mywork-ship-newname">'+
+      '<label>Quantity</label><input id="mywork-ship-qty" type="number" step="1" value="1">'+
+      '<button class="secondary" onclick="shipBackFromMyWork(\''+w.id+'\')">Ship back</button><div id="mywork-shipback-msg"></div></div>';
+  }catch(e){showError(e.message);}
+}
+async function startMyWork(id){
+  try{ await apiFetch("/work-orders/"+id+"/stage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({stage:"Work Started",changed_by:getSession().name})});
+    document.getElementById("mywork-start-msg").innerHTML='<p style="color:var(--ok);">Started.</p>'; viewMyWorkOrder(id); }catch(e){showError(e.message);}
+}
+async function uploadMyWIPPhoto(id){
+  const f=document.getElementById("mywork-photo").files[0]; if(!f){alert("Choose a file");return;}
+  const fd=new FormData(); fd.append("photo",f);
+  try{ await apiFetch("/work-orders/"+id+"/photo",{method:"POST",body:fd}); document.getElementById("mywork-photo-msg").innerHTML='<p style="color:var(--ok);">Added.</p>'; viewMyWorkOrder(id); }catch(e){showError(e.message);}
+}
+async function shipBackFromMyWork(id){
+  try{
+    const output_item_id=document.getElementById("mywork-ship-item").value.trim()||null;
+    const new_item_name=document.getElementById("mywork-ship-newname").value.trim()||null;
+    const quantity=parseFloat(document.getElementById("mywork-ship-qty").value);
+    const res = await apiFetch("/work-orders/"+id+"/ship-back",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({output_item_id:output_item_id,new_item_name:new_item_name,quantity:quantity})});
+    const warningLine = res.mismatch ? '<p class="warn-row">Note: this doesn\'t match what this job was meant to produce — allowed, but worth double-checking.</p>' : '';
+    document.getElementById("mywork-shipback-msg").innerHTML=warningLine+'<p style="color:var(--ok);">Dispatch '+res.dispatch_id+' created — pick and ship it from the list above.</p>';
+    loadMyWork();
   }catch(e){showError(e.message);}
 }
 
@@ -744,7 +970,7 @@ async function receiveWO(id){
 async function loadDispatchQueue(){
   try{
     const q=await apiFetch("/dispatch-queue");
-    const shipRows=q.customer_shipments.map(function(o){return '<tr><td>'+o.id+'</td><td>'+o.customer_name+'</td><td>'+(o.item_name||o.description)+'</td>'+
+    const shipRows=q.customer_shipments.map(function(o){return '<tr><td>'+o.id+'</td><td>'+o.customer_name+'</td><td>'+(o.items?o.items.map(function(l){return l.item_name||l.description;}).join(", "):"")+'</td>'+
       '<td><button class="secondary btn-sm" onclick="switchTab(\'co\');viewCO(\''+o.id+'\')">Go ship</button></td></tr>';}).join("");
     const matRows=q.material_to_workers.map(function(w){return '<tr><td>'+w.id+'</td><td>'+w.description+'</td><td>'+w.worker_site_name+'</td>'+
       '<td><button class="secondary btn-sm" onclick="switchTab(\'workorders\');viewWO(\''+w.id+'\')">Issue material</button></td></tr>';}).join("");
@@ -826,8 +1052,10 @@ async function openReceiveConfirm(dispatchId){
   try{
     const d = await apiFetch("/dispatches/"+dispatchId);
     const rows = d.items.map(function(it){return '<tr><td>'+it.item_name+'</td><td>'+it.scanned_quantity+'</td><td><input id="recv-qty-'+it.id+'" type="number" step="0.1" value="'+it.scanned_quantity+'" style="width:80px;"></td></tr>';}).join("");
+    const isReturnShipment = d.dispatch_type==="return_shipment";
     document.getElementById("receive-confirm-area").innerHTML = '<div class="card"><h4 style="margin-top:0;">Confirm '+d.id+'</h4>'+
       '<table><tr><th>Item</th><th>Shipped</th><th>Actually received</th></tr>'+rows+'</table>'+
+      (isReturnShipment?'<label>Labor cost for this job</label><input id="recv-labor-cost" type="number" step="0.01">':'')+
       '<button class="secondary" onclick="submitReceiveConfirm(\''+d.id+'\')">Confirm</button><div id="recv-confirm-msg"></div></div>';
     window.__pendingDispatchItems = d.items;
   }catch(e){showError(e.message);}
@@ -835,8 +1063,9 @@ async function openReceiveConfirm(dispatchId){
 async function submitReceiveConfirm(dispatchId){
   try{
     const confirmations = window.__pendingDispatchItems.map(function(it){return {dispatch_item_id:it.id, received_quantity: parseFloat(document.getElementById("recv-qty-"+it.id).value)};});
-    await apiFetch("/dispatches/"+dispatchId+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirmations:confirmations})});
-    document.getElementById("recv-confirm-msg").innerHTML='<p style="color:var(--ok);">Confirmed — stock now credited.</p>';
+    const laborField = document.getElementById("recv-labor-cost");
+    const res = await apiFetch("/dispatches/"+dispatchId+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirmations:confirmations, labor_cost: laborField?parseFloat(laborField.value)||0:0})});
+    document.getElementById("recv-confirm-msg").innerHTML='<p style="color:var(--ok);">Confirmed — stock now credited.'+(res.work_order_closed?' Work order closed.':'')+'</p>';
     loadReceiveQueue(); loadReceiveHistory();
   }catch(e){showError(e.message);}
 }
@@ -874,44 +1103,69 @@ async function loadReceiveHistory(){
 }
 
 // ---------------- Customer Orders ----------------
+let coLineCount = 0;
+async function addCOLine(){
+  coLineCount++;
+  const lineId = "coline-"+coLineCount;
+  const itemOptions = await apiFetch("/items?item_type=finished_good");
+  const optionsHtml = '<option value="">-- item (or leave blank for custom) --</option>'+itemOptions.map(function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+'</option>';}).join("");
+  const row = document.createElement("div");
+  row.className = "card"; row.id = lineId;
+  row.innerHTML = '<label>Item</label><select class="co-line-item">'+optionsHtml+'</select>'+
+    '<label>Or describe custom request</label><textarea class="co-line-desc" rows="2"></textarea>'+
+    '<div class="row"><div><label>Quantity</label><input class="co-line-qty" type="number" step="1" value="1"></div><div><label>Tax %</label><input class="co-line-tax" type="number" step="0.1" value="0"></div></div>'+
+    '<button type="button" class="secondary btn-sm" onclick="document.getElementById(\''+lineId+'\').remove()">Remove line</button>';
+  document.getElementById("co-lines").appendChild(row);
+}
 async function createCO(){
   try{
     const custSel = document.getElementById("co-customer-select");
     const custParty = allPartiesCache.find(function(p){return p.id===custSel.value;});
-    const item_id=document.getElementById("co-item").value||null;
-    const description=document.getElementById("co-desc").value.trim()||null;
+    const lineRows = document.querySelectorAll("#co-lines .card");
+    if(!lineRows.length){ alert("Add at least one line item"); return; }
+    const items = Array.from(lineRows).map(function(row){return {
+      item_id: row.querySelector(".co-line-item").value||null,
+      description: row.querySelector(".co-line-desc").value.trim()||null,
+      quantity: parseFloat(row.querySelector(".co-line-qty").value)||1,
+      tax_rate: parseFloat(row.querySelector(".co-line-tax").value)||0,
+    };});
     const res=await apiFetch("/customer-orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       customer_party_id: custSel.value||null, customer_name: custParty?custParty.name:"Walk-in", customer_phone:document.getElementById("co-phone").value.trim(),
-      item_id:item_id, description:description, quantity:parseFloat(document.getElementById("co-qty").value)||1,
-      tax_rate:parseFloat(document.getElementById("co-tax").value)||0, promised_delivery_date:document.getElementById("co-promised").value||null })});
+      items:items, promised_delivery_date:document.getElementById("co-promised").value||null })});
     document.getElementById("co-result").innerHTML='<p style="color:var(--ok);">'+res.id+' logged.</p>';
+    document.getElementById("co-customer-select").value="";
+    document.getElementById("co-phone").value="";
+    document.getElementById("co-promised").value="";
+    document.getElementById("co-lines").innerHTML="";
     loadCOs();
   }catch(e){showError(e.message);}
 }
 async function loadCOs(){
   try{
     const list=await apiFetch("/customer-orders");
-    const rows=list.map(function(o){return '<tr><td>'+o.id+'</td><td>'+o.customer_name+'</td><td>'+(o.item_name||o.description)+'</td><td>'+o.status+'</td><td><button class="secondary btn-sm" onclick="viewCO(\''+o.id+'\')">View</button></td></tr>';}).join("");
-    document.getElementById("co-list").innerHTML=list.length?'<table><tr><th>Order</th><th>Customer</th><th>Item</th><th>Status</th><th></th></tr>'+rows+'</table>':"No customer orders yet.";
+    const rows=list.map(function(o){return '<tr><td>'+o.id+'</td><td>'+o.customer_name+'</td><td>'+o.items.length+' line(s)</td><td>'+o.status+'</td><td><button class="secondary btn-sm" onclick="viewCO(\''+o.id+'\')">View</button></td></tr>';}).join("");
+    document.getElementById("co-list").innerHTML=list.length?'<table><tr><th>Order</th><th>Customer</th><th>Lines</th><th>Status</th><th></th></tr>'+rows+'</table>':"No customer orders yet.";
   }catch(e){document.getElementById("co-list").textContent=e.message;}
 }
 async function viewCO(id){
   try{
     const o=await apiFetch("/customer-orders/"+id);
-    let html='<div class="card"><div class="code-big">'+o.id+'</div><p>'+o.customer_name+' — '+(o.item_name||o.description)+' x'+o.quantity+'</p><p>Status: <span class="stage-badge">'+o.status+'</span></p>';
-    if(o.current_stock!==null) html+='<p>Current stock of this item: <b>'+o.current_stock+'</b></p>';
-    if(o.open_work_orders_for_item && o.open_work_orders_for_item.length){
-      html += '<p>Open work orders already making this item: '+o.open_work_orders_for_item.map(function(w){return w.id+" ("+w.worker_site_name+")";}).join(", ")+'</p>';
+    let html='<div class="card"><div class="code-big">'+o.id+'</div><p>'+o.customer_name+'</p><p>Status: <span class="stage-badge">'+o.status+'</span></p>';
+    const itemRows = o.items.map(function(line){
+      let cell = '<tr><td>'+(line.item_name||line.description)+'</td><td>'+line.quantity+'</td><td>'+(line.current_stock!==null?line.current_stock:"-")+'</td>';
+      if(line.open_work_orders_for_item && line.open_work_orders_for_item.length) cell += '<td>'+line.open_work_orders_for_item.map(function(w){return w.id;}).join(", ")+'</td>'; else cell += '<td>-</td>';
+      if(!["billed","shipped","cancelled"].includes(o.status)) cell += '<td><input id="co-price-'+line.id+'" type="number" step="0.01" placeholder="Price" style="width:90px;"></td>';
+      cell += '</tr>';
+      return cell;
+    }).join("");
+    html += '<table><tr><th>Item</th><th>Qty</th><th>Stock</th><th>Open WOs</th>'+(!["billed","shipped","cancelled"].includes(o.status)?'<th>Price</th>':'')+'</tr>'+itemRows+'</table>';
+    if(!o.linked_work_order_id && !["billed","shipped","cancelled"].includes(o.status)){
+      html += '<p class="muted">To start production for a specific line, go to Work Orders and use its backlog.</p>';
     }
     if(o.work_order) html+='<p>Linked WO: '+o.work_order.id+' ('+o.work_order.stage+')</p>';
     if(o.sale) html+='<p>Sale: '+o.sale.id+' — Rs '+o.sale.total_amount+'</p>';
-    if(!o.linked_work_order_id && !["billed","shipped","cancelled"].includes(o.status)){
-      html += '<button class="secondary" onclick="switchTab(\'workorders\');prefillWOFromOrder(\''+o.id+'\',\''+(o.item_id||"")+'\',\''+o.quantity+'\')">Create a work order for this</button>';
-    }
     if(!["billed","shipped","cancelled"].includes(o.status)){
-      html+='<h4>Bill it</h4><label>Sale price (pre-tax)</label><input id="co-bill-price" type="number" step="0.01">'+
-        '<label>Exact lot (optional, overrides FIFO)</label><input id="co-bill-lot">'+
-        '<button class="secondary" onclick="billCO(\''+o.id+'\')">Bill</button><div id="co-bill-msg"></div>';
+      html += '<button class="secondary" onclick="billCO(\''+o.id+'\')">Bill all lines</button><div id="co-bill-msg"></div>';
     }
     if(o.status==="billed"){
       html+='<label>Courier</label><input id="co-ship-courier"><label>Tracking (optional)</label><input id="co-ship-tracking">'+
@@ -924,13 +1178,17 @@ async function viewCO(id){
     }
     html+='</div>';
     document.getElementById("co-detail").innerHTML=html;
+    window.__currentCOItems = o.items;
   }catch(e){showError(e.message);}
 }
 async function billCO(id){
   try{
-    const sale_price=parseFloat(document.getElementById("co-bill-price").value);
-    const lot_id=document.getElementById("co-bill-lot").value.trim()||null;
-    await apiFetch("/customer-orders/"+id+"/bill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sale_price:sale_price,lot_id:lot_id})});
+    const line_prices = {};
+    for(const line of window.__currentCOItems){
+      const priceField = document.getElementById("co-price-"+line.id);
+      if(priceField) line_prices[line.id] = { sale_price: parseFloat(priceField.value) };
+    }
+    await apiFetch("/customer-orders/"+id+"/bill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({line_prices:line_prices})});
     document.getElementById("co-bill-msg").innerHTML='<p style="color:var(--ok);">Billed.</p>'; viewCO(id); loadCOs();
   }catch(e){showError(e.message);}
 }
@@ -948,23 +1206,50 @@ async function updateCOTracking(id){
 }
 
 // ---------------- Sales / Refunds ----------------
+let saleLineCount = 0;
+async function addSaleLine(){
+  saleLineCount++;
+  const lineId = "saleline-"+saleLineCount;
+  const itemOptions = await apiFetch("/items");
+  const optionsHtml = '<option value="">-- item (optional) --</option>'+itemOptions.map(function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+' - stock:'+i.total_stock+'</option>';}).join("");
+  const row = document.createElement("div");
+  row.className = "card"; row.id = lineId;
+  row.innerHTML = '<label>Item (optional)</label><select class="sale-line-item">'+optionsHtml+'</select>'+
+    '<label>Scan/enter exact lot to override FIFO (optional)</label>'+
+    '<div class="row"><input class="sale-line-lot" placeholder="LOT-000001"><button type="button" class="secondary btn-sm" onclick="scanAndFill(\''+lineId+'-lotfield\',\'lot\')" style="flex:0 0 90px;">📷 Scan</button></div>'+
+    '<div class="row"><div><label>Quantity</label><input class="sale-line-qty" type="number" step="1" value="1"></div><div><label>Sale price (Rs, pre-tax)</label><input class="sale-line-price" type="number" step="0.01"></div></div>'+
+    '<label>Tax %</label><input class="sale-line-tax" type="number" step="0.1" value="0">'+
+    '<label>Description</label><input class="sale-line-desc">'+
+    '<button type="button" class="secondary btn-sm" onclick="document.getElementById(\''+lineId+'\').remove()">Remove line</button>';
+  document.getElementById("s-lines").appendChild(row);
+  row.querySelector(".sale-line-lot").id = lineId+"-lotfield";
+}
 async function createSale(){
   try{
     const custSel = document.getElementById("s-customer-select");
     const custParty = allPartiesCache.find(function(p){return p.id===custSel.value;});
     const isReseller = custParty && custParty.type==="reseller";
+    const lineRows = document.querySelectorAll("#s-lines .card");
+    if(!lineRows.length){ alert("Add at least one line item"); return; }
+    const lines = Array.from(lineRows).map(function(row){return {
+      item_id: row.querySelector(".sale-line-item").value||null,
+      lot_id: row.querySelector(".sale-line-lot").value.trim()||null,
+      quantity: parseFloat(row.querySelector(".sale-line-qty").value)||1,
+      sale_price: parseFloat(row.querySelector(".sale-line-price").value),
+      tax_rate: parseFloat(row.querySelector(".sale-line-tax").value)||0,
+      description: row.querySelector(".sale-line-desc").value.trim(),
+    };});
     const res=await apiFetch("/sales",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      item_id:document.getElementById("s-item").value||null, lot_id:document.getElementById("s-lot").value.trim()||null,
-      quantity:parseFloat(document.getElementById("s-qty").value)||1,
-      description:document.getElementById("s-desc").value.trim(), sale_price:parseFloat(document.getElementById("s-price").value),
-      tax_rate:parseFloat(document.getElementById("s-tax").value)||0,
-      customer_party_id:custSel.value||null, customer_name:(custParty&&!isReseller)?custParty.name:null,
+      lines:lines, customer_party_id:custSel.value||null, customer_name:(custParty&&!isReseller)?custParty.name:null,
       reseller_name:(custParty&&isReseller)?custParty.name:null })});
-    document.getElementById("sale-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+' — total Rs '+res.total_amount+'</p>'; loadSales(); loadSalesForRefund();
+    document.getElementById("sale-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+' — total Rs '+res.total_amount+'</p>';
+    document.getElementById("s-lines").innerHTML="";
+    document.getElementById("s-customer-select").value="";
+    loadSales(); loadSalesForRefund();
   }catch(e){showError(e.message);}
 }
 async function loadSales(){
-  try{ const list=await apiFetch("/sales"); const rows=list.slice(0,20).map(function(s){return '<tr><td>'+s.id+'</td><td>'+s.description+'</td><td>Rs '+s.total_amount+'</td></tr>';}).join("");
+  try{ const list=await apiFetch("/sales"); const rows=list.slice(0,20).map(function(s){return '<tr><td>'+s.id+'</td><td>'+(s.lines?s.lines.length:0)+' line(s)</td><td>Rs '+s.total_amount+'</td></tr>';}).join("");
     document.getElementById("sales-list").innerHTML=list.length?'<table><tr><th>Code</th><th>Desc</th><th>Total</th></tr>'+rows+'</table>':"None yet."; }catch(e){document.getElementById("sales-list").textContent=e.message;}
 }
 async function loadSalesForRefund(){
@@ -974,27 +1259,61 @@ async function createRefund(){
   try{
     await apiFetch("/refunds",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sale_id:document.getElementById("ref-sale-select").value,amount:parseFloat(document.getElementById("ref-amount").value),reason:document.getElementById("ref-reason").value.trim()})});
     document.getElementById("refund-msg").innerHTML='<p style="color:var(--ok);">Recorded.</p>';
+    document.getElementById("ref-amount").value="";
+    document.getElementById("ref-reason").value="";
   }catch(e){showError(e.message);}
 }
 
 // ---------------- Supplier Bills ----------------
-function toggleSupplierBillType(){ document.getElementById("sb-po-wrap").style.display = document.getElementById("sb-type").value==="po"?"block":"none"; }
+function toggleSupplierBillType(){
+  const isPO = document.getElementById("sb-type").value==="po";
+  document.getElementById("sb-po-wrap").style.display = isPO?"block":"none";
+  document.getElementById("sb-cash-wrap").style.display = isPO?"none":"block";
+}
 async function loadUnbilledPOs(){
   const list = await apiFetch("/purchase-orders");
-  const unbilled = list.filter(function(po){return po.status==="received" && po.bill_status==="not_billed";});
-  document.getElementById("sb-po").innerHTML = unbilled.map(function(po){return '<option value="'+po.id+'">'+po.id+' - '+po.supplier_name+'</option>';}).join("");
+  const rows = [];
+  for(const po of list){
+    for(const line of po.items){
+      if(line.quantity_received >= line.quantity_ordered && line.status !== "billed"){
+        rows.push('<label><input type="checkbox" class="sb-line-check" data-line-id="'+line.id+'" data-item-id="'+line.item_id+'" style="width:auto;"> '+
+          po.id+' — '+line.item_name+' ('+line.quantity_received+' received) '+
+          '<input type="number" step="0.01" class="sb-line-rate" data-line-id="'+line.id+'" placeholder="Rate" style="width:90px;display:inline-block;"></label>');
+      }
+    }
+  }
+  document.getElementById("sb-po-lines").innerHTML = rows.length?rows.join("<br>"):"<p class='muted'>Nothing received-but-unbilled right now.</p>";
+  await populateItemDropdown("sb-cash-item");
 }
 async function createSupplierBill(){
   try{
     const isPO = document.getElementById("sb-type").value==="po";
     const supplierSel = document.getElementById("sb-supplier-select");
     const supplierParty = allPartiesCache.find(function(p){return p.id===supplierSel.value;});
+    let lines, purchase_order_id = null;
+    if(isPO){
+      const checked = Array.from(document.querySelectorAll(".sb-line-check:checked"));
+      if(!checked.length){ alert("Select at least one line"); return; }
+      lines = checked.map(function(cb){
+        const rateInput = document.querySelector('.sb-line-rate[data-line-id="'+cb.dataset.lineId+'"]');
+        return { purchase_order_item_id: cb.dataset.lineId, item_id: cb.dataset.itemId, quantity: null, rate: parseFloat(rateInput.value)||0 };
+      });
+      // quantity comes from the PO line itself server-side isn't tracked here, so pass the full received qty via a lookup:
+      const allPOs = await apiFetch("/purchase-orders");
+      lines = lines.map(function(l){
+        for(const po of allPOs){ const match = po.items.find(function(i){return String(i.id)===String(l.purchase_order_item_id);}); if(match){ purchase_order_id = po.id; l.quantity = match.quantity_received; } }
+        return l;
+      });
+    } else {
+      lines = [{ item_id: document.getElementById("sb-cash-item").value||null, quantity: parseFloat(document.getElementById("sb-cash-qty").value)||1, rate: parseFloat(document.getElementById("sb-cash-rate").value)||0 }];
+    }
     const res = await apiFetch("/supplier-bills",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      purchase_order_id: isPO?document.getElementById("sb-po").value:null,
-      supplier_party_id: supplierSel.value||null, supplier_name: supplierParty?supplierParty.name:"Cash purchase",
-      bill_number:document.getElementById("sb-number").value.trim(), amount:parseFloat(document.getElementById("sb-amount").value),
-      description:document.getElementById("sb-desc").value.trim() })});
-    document.getElementById("sb-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+'</p>';
+      purchase_order_id: purchase_order_id, supplier_party_id: supplierSel.value||null, supplier_name: supplierParty?supplierParty.name:"Cash purchase",
+      bill_number:document.getElementById("sb-number").value.trim(), description:document.getElementById("sb-desc").value.trim(), lines:lines })});
+    document.getElementById("sb-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+' — Rs '+res.amount+'</p>';
+    document.getElementById("sb-supplier-select").value="";
+    document.getElementById("sb-number").value="";
+    document.getElementById("sb-desc").value="";
     loadUnbilledPOs(); loadSupplierBills();
   }catch(e){showError(e.message);}
 }
@@ -1006,7 +1325,10 @@ async function loadSupplierBills(){
 // ---------------- Expenses ----------------
 async function createExpense(){
   try{ const res=await apiFetch("/expenses",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({description:document.getElementById("e-desc").value.trim(),expense_category_id:parseInt(document.getElementById("e-category-select").value),amount:parseFloat(document.getElementById("e-amount").value)})});
-    document.getElementById("expense-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+'</p>'; loadExpenses(); }catch(e){showError(e.message);}
+    document.getElementById("expense-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+'</p>';
+    document.getElementById("e-desc").value="";
+    document.getElementById("e-amount").value="";
+    loadExpenses(); }catch(e){showError(e.message);}
 }
 async function loadExpenses(){
   try{ const list=await apiFetch("/expenses"); const rows=list.slice(0,20).map(function(x){return '<tr><td>'+x.id+'</td><td>'+x.description+'</td><td>'+(x.category_name||"")+'</td><td>Rs '+x.amount+'</td></tr>';}).join("");
@@ -1053,6 +1375,10 @@ async function createJournalEntry(){
       date:document.getElementById("je-date").value||null, description:document.getElementById("je-desc").value.trim(),
       debit_account_id:parseInt(debit), credit_account_id:parseInt(credit), amount:parseFloat(document.getElementById("je-amount").value) })});
     document.getElementById("je-result").innerHTML='<p style="color:var(--ok);">Posted '+res.id+'</p>';
+    document.getElementById("je-debit").value="";
+    document.getElementById("je-credit").value="";
+    document.getElementById("je-amount").value="";
+    document.getElementById("je-desc").value="";
   }catch(e){showError(e.message);}
 }
 
@@ -1091,7 +1417,12 @@ async function createParty(){
     const bodyObj={name:document.getElementById("pty-name").value.trim(), type:type, opening_balance:parseFloat(document.getElementById("pty-opening").value)||0};
     if(type==="reseller"){ bodyObj.discount_tier=parseInt(document.getElementById("pty-tier").value); bodyObj.target_amount=parseFloat(document.getElementById("pty-target").value)||null; bodyObj.target_period=document.getElementById("pty-period").value; bodyObj.bonus_rule=document.getElementById("pty-bonus").value.trim(); }
     const res=await apiFetch("/parties",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(bodyObj)});
-    document.getElementById("party-result").innerHTML='<p style="color:var(--ok);">Added '+res.id+'</p>'; loadParties();
+    document.getElementById("party-result").innerHTML='<p style="color:var(--ok);">Added '+res.id+'</p>';
+    document.getElementById("pty-name").value="";
+    document.getElementById("pty-opening").value="0";
+    document.getElementById("pty-target").value="";
+    document.getElementById("pty-bonus").value="";
+    loadParties();
   }catch(e){showError(e.message);}
 }
 async function loadParties(){
@@ -1107,7 +1438,11 @@ async function createUser(){
     const res=await apiFetch("/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       name:document.getElementById("u-name").value.trim(), username:document.getElementById("u-username").value.trim(),
       pin:document.getElementById("u-pin").value.trim(), role:role, create_worker_site: role==="worker" && document.getElementById("u-create-site").checked })});
-    document.getElementById("user-result").innerHTML='<p style="color:var(--ok);">Created login'+(res.site_id?' with site '+res.site_id:'')+'</p>'; loadUsers();
+    document.getElementById("user-result").innerHTML='<p style="color:var(--ok);">Created login'+(res.site_id?' with site '+res.site_id:'')+'</p>';
+    document.getElementById("u-name").value="";
+    document.getElementById("u-username").value="";
+    document.getElementById("u-pin").value="";
+    loadUsers();
   }catch(e){showError(e.message);}
 }
 async function loadUsers(){

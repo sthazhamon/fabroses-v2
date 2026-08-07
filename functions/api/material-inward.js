@@ -9,15 +9,18 @@ export async function onRequestGet({ env }) {
      ORDER BY mi.issued_at ASC`
   ).all();
 
-  const { results: fromPurchaseOrders } = await env.DB.prepare(
-    `SELECT po.id, po.supplier_name, po.item_id, i.name AS item_name, po.quantity_ordered, po.quantity_received, po.expected_date
-     FROM purchase_orders po LEFT JOIN items i ON i.id = po.item_id
-     WHERE po.status IN ('ordered', 'partially_received')
+  const { results: outstandingLines } = await env.DB.prepare(
+    `SELECT poi.id, poi.purchase_order_id, po.supplier_name, poi.item_id, i.name AS item_name,
+            poi.quantity_ordered, poi.quantity_received, po.expected_date
+     FROM purchase_order_items poi
+     LEFT JOIN purchase_orders po ON po.id = poi.purchase_order_id
+     LEFT JOIN items i ON i.id = poi.item_id
+     WHERE poi.quantity_received < poi.quantity_ordered
      ORDER BY po.expected_date ASC`
   ).all();
 
   return Response.json({
     pending_from_workers: fromWorkers.map((r) => ({ ...r, source: "work_order" })),
-    pending_from_purchase_orders: fromPurchaseOrders.map((r) => ({ ...r, source: "purchase_order" })),
+    pending_from_purchase_orders: outstandingLines.map((r) => ({ ...r, source: "purchase_order" })),
   });
 }

@@ -5,7 +5,7 @@ pages_build_output_dir = "."
 [[d1_databases]]
 binding = "DB"
 database_name = "fabroses-db"
-database_id = "f43a761a-e81a-42d6-a53b-67a925674562"
+database_id = "01da800b-253c-4f5e-af62-d3a8aa2b6906"
 
 [[r2_buckets]]
 binding = "PHOTOS"

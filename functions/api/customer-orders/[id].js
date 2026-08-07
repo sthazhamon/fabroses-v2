@@ -1,20 +1,23 @@
 export async function onRequestGet({ params, env }) {
-  const order = await env.DB.prepare(
-    `SELECT co.*, i.name AS item_name, i.item_code, i.price AS item_price
-     FROM customer_orders co LEFT JOIN items i ON i.id = co.item_id WHERE co.id = ?`
-  ).bind(params.id).first();
+  const order = await env.DB.prepare("SELECT * FROM customer_orders WHERE id = ?").bind(params.id).first();
   if (!order) return Response.json({ error: "not found" }, { status: 404 });
 
-  let currentStock = null;
-  let openWorkOrdersForItem = [];
-  if (order.item_id) {
-    const stockRow = await env.DB.prepare("SELECT COALESCE(SUM(quantity_balance),0) AS t FROM item_lots WHERE item_id = ?").bind(order.item_id).first();
-    currentStock = stockRow.t;
-    const { results } = await env.DB.prepare(
-      `SELECT w.*, s.name AS worker_site_name FROM work_orders w LEFT JOIN sites s ON s.id = w.worker_site_id
-       WHERE w.intended_item_id = ? AND w.closed_at IS NULL ORDER BY w.created_at DESC`
-    ).bind(order.item_id).all();
-    openWorkOrdersForItem = results;
+  const { results: rawItems } = await env.DB.prepare(
+    "SELECT coi.*, i.name AS item_name, i.item_code FROM customer_order_items coi LEFT JOIN items i ON i.id = coi.item_id WHERE coi.customer_order_id = ?"
+  ).bind(params.id).all();
+
+  const items = [];
+  for (const line of rawItems) {
+    let currentStock = null, openWorkOrders = [];
+    if (line.item_id) {
+      const stockRow = await env.DB.prepare("SELECT COALESCE(SUM(quantity_balance),0) AS t FROM item_lots WHERE item_id = ?").bind(line.item_id).first();
+      currentStock = stockRow.t;
+      const { results } = await env.DB.prepare(
+        "SELECT w.*, s.name AS worker_site_name FROM work_orders w LEFT JOIN sites s ON s.id = w.worker_site_id WHERE w.intended_item_id = ? AND w.closed_at IS NULL"
+      ).bind(line.item_id).all();
+      openWorkOrders = results;
+    }
+    items.push({ ...line, current_stock: currentStock, open_work_orders_for_item: openWorkOrders });
   }
 
   let workOrder = null;
@@ -27,9 +30,15 @@ export async function onRequestGet({ params, env }) {
   }
 
   let sale = null;
-  if (order.sale_id) sale = await env.DB.prepare("SELECT * FROM sales WHERE id = ?").bind(order.sale_id).first();
+  if (order.sale_id) {
+    sale = await env.DB.prepare("SELECT * FROM sales WHERE id = ?").bind(order.sale_id).first();
+    if (sale) {
+      const { results: saleLines } = await env.DB.prepare("SELECT * FROM sale_items WHERE sale_id = ?").bind(sale.id).all();
+      sale = { ...sale, lines: saleLines };
+    }
+  }
 
-  return Response.json({ ...order, current_stock: currentStock, open_work_orders_for_item: openWorkOrdersForItem, work_order: workOrder, sale });
+  return Response.json({ ...order, items, work_order: workOrder, sale });
 }
 
 export async function onRequestPatch({ request, env, params }) {
@@ -38,9 +47,7 @@ export async function onRequestPatch({ request, env, params }) {
   if (!existing) return Response.json({ error: "Customer order not found" }, { status: 404 });
 
   if (body.status === "cancelled") {
-    if (["billed", "shipped"].includes(existing.status)) {
-      return Response.json({ error: `Can't cancel — already ${existing.status}` }, { status: 400 });
-    }
+    if (["billed", "shipped"].includes(existing.status)) return Response.json({ error: `Can't cancel — already ${existing.status}` }, { status: 400 });
     await env.DB.prepare("UPDATE customer_orders SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").bind(params.id).run();
     return Response.json({ ok: true });
   }

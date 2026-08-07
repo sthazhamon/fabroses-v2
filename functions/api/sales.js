@@ -1,8 +1,13 @@
 import { createSale } from "./_sales.js";
 
 export async function onRequestGet({ env }) {
-  const { results } = await env.DB.prepare("SELECT * FROM sales ORDER BY sale_date DESC, id DESC").all();
-  return Response.json(results);
+  const { results: sales } = await env.DB.prepare("SELECT * FROM sales ORDER BY sale_date DESC, id DESC").all();
+  const withLines = [];
+  for (const sale of sales) {
+    const { results: lines } = await env.DB.prepare("SELECT * FROM sale_items WHERE sale_id = ?").bind(sale.id).all();
+    withLines.push({ ...sale, lines });
+  }
+  return Response.json(withLines);
 }
 
 export async function onRequestPost({ request, env, data }) {

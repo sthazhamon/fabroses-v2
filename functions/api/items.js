@@ -24,7 +24,7 @@ export async function onRequestGet({ request, env }) {
   for (const row of lotSums) stockByItem[row.item_id] = row.total_stock;
 
   const { results: photos } = await env.DB.prepare(
-    "SELECT item_id, r2_key, uploaded_at FROM item_photos ORDER BY uploaded_at ASC"
+    "SELECT item_id, r2_key, uploaded_at FROM item_photos ORDER BY uploaded_at DESC"
   ).all();
   const coverByItem = {};
   for (const p of photos) if (!coverByItem[p.item_id]) coverByItem[p.item_id] = p.r2_key;

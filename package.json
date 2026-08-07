@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler pages dev . --d1=DB --r2=PHOTOS",
     "deploy": "wrangler pages deploy .",
-    "test": "node test/system-test-ledger-engine.mjs && node test/system-test-worker-party.mjs && node test/system-test-sales.mjs && node test/system-test-payments.mjs && node test/system-test-two-step-dispatch.mjs && node test/system-test-material-return.mjs && node test/system-test-reseller.mjs && node test/frontend-integration-test-v2.mjs"
+    "test": "node test/system-test-ledger-engine.mjs && node test/system-test-worker-party.mjs && node test/system-test-sales.mjs && node test/system-test-payments.mjs && node test/system-test-two-step-dispatch.mjs && node test/system-test-material-return.mjs && node test/system-test-reseller.mjs && node test/system-test-worker-flow.mjs && node test/system-test-multiline-po.mjs && node test/system-test-multiline-co.mjs && node test/system-test-multiline-supplier-bills.mjs && node test/system-test-lot-edit.mjs && node test/frontend-integration-test-v2.mjs"
   },
   "devDependencies": { "wrangler": "^4.0.0" }
 }

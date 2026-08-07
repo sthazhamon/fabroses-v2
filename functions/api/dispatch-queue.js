@@ -1,10 +1,13 @@
 export async function onRequestGet({ env }) {
   const { results: customerShipments } = await env.DB.prepare(
-    `SELECT co.*, i.name AS item_name FROM customer_orders co
-     LEFT JOIN items i ON i.id = co.item_id
-     WHERE co.status = 'billed'
-     ORDER BY co.updated_at ASC`
+    `SELECT co.* FROM customer_orders co WHERE co.status = 'billed' ORDER BY co.updated_at ASC`
   ).all();
+  for (const co of customerShipments) {
+    const { results: items } = await env.DB.prepare(
+      "SELECT coi.*, i.name AS item_name FROM customer_order_items coi LEFT JOIN items i ON i.id = coi.item_id WHERE coi.customer_order_id = ?"
+    ).bind(co.id).all();
+    co.items = items;
+  }
 
   const { results: materialToWorkers } = await env.DB.prepare(
     `SELECT w.*, s.name AS worker_site_name, i.name AS intended_item_name

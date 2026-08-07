@@ -9,13 +9,16 @@ export async function onRequestGet({ env }) {
      LIMIT 100`
   ).all();
 
-  const { results: fromPurchaseOrders } = await env.DB.prepare(
-    `SELECT po.*, i.name AS item_name FROM purchase_orders po
-     LEFT JOIN items i ON i.id = po.item_id
-     WHERE po.status = 'received'
-     ORDER BY po.created_at DESC
-     LIMIT 100`
-  ).all();
+  const { results: allPOs } = await env.DB.prepare("SELECT * FROM purchase_orders ORDER BY created_at DESC LIMIT 100").all();
+  const fromPurchaseOrders = [];
+  for (const po of allPOs) {
+    const { results: lines } = await env.DB.prepare(
+      "SELECT poi.*, i.name AS item_name FROM purchase_order_items poi LEFT JOIN items i ON i.id = poi.item_id WHERE poi.purchase_order_id = ?"
+    ).bind(po.id).all();
+    if (lines.length && lines.every((l) => l.quantity_received >= l.quantity_ordered)) {
+      fromPurchaseOrders.push({ ...po, item_name: lines.map((l) => l.item_name).join(", ") });
+    }
+  }
 
   return Response.json({
     received_from_workers: fromWorkers,

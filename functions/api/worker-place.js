@@ -18,5 +18,15 @@ export async function onRequestGet({ env, data }) {
      ORDER BY l.created_at ASC`
   ).bind(siteId).all();
 
-  return Response.json({ site_id: siteId, pending_orders: orders, own_stock: ownStock });
+  // Material shipped TO this worker, sitting in transit, waiting for them to confirm it arrived.
+  const { results: incoming } = await env.DB.prepare(
+    "SELECT * FROM dispatches WHERE to_site_id = ? AND status = 'shipped' ORDER BY shipped_at ASC"
+  ).bind(siteId).all();
+
+  // This worker's own outbound activity — finished goods they still need to pick/ship back.
+  const { results: outgoing } = await env.DB.prepare(
+    "SELECT * FROM dispatches WHERE from_site_id = ? AND status IN ('pending_pick', 'picked') ORDER BY created_at ASC"
+  ).bind(siteId).all();
+
+  return Response.json({ site_id: siteId, pending_orders: orders, own_stock: ownStock, incoming_to_confirm: incoming, outgoing_to_ship: outgoing });
 }

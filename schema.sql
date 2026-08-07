@@ -247,12 +247,8 @@ CREATE TABLE customer_orders (
   customer_party_id TEXT,
   customer_name TEXT NOT NULL,
   customer_phone TEXT,
-  item_id TEXT REFERENCES items(id),
-  description TEXT,
-  quantity REAL DEFAULT 1,
   order_date TEXT,
   promised_delivery_date TEXT,
-  tax_rate REAL DEFAULT 0,
   status TEXT DEFAULT 'received',
   linked_work_order_id TEXT REFERENCES work_orders(id),
   sale_id TEXT,
@@ -264,19 +260,34 @@ CREATE TABLE customer_orders (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE customer_order_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  customer_order_id TEXT NOT NULL REFERENCES customer_orders(id),
+  item_id TEXT REFERENCES items(id),
+  description TEXT,
+  quantity REAL DEFAULT 1,
+  tax_rate REAL DEFAULT 0
+);
+
 CREATE TABLE purchase_orders (
   id TEXT PRIMARY KEY,
   supplier_party_id TEXT,
   supplier_name TEXT NOT NULL,
-  item_id TEXT REFERENCES items(id),
-  quantity_ordered REAL NOT NULL,
-  rate REAL,
   expected_date TEXT,
   status TEXT DEFAULT 'ordered',
-  quantity_received REAL DEFAULT 0,
   bill_status TEXT DEFAULT 'not_billed',
   notes TEXT,
   created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE purchase_order_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id),
+  item_id TEXT REFERENCES items(id),
+  quantity_ordered REAL NOT NULL,
+  rate REAL,
+  quantity_received REAL DEFAULT 0,
+  status TEXT DEFAULT 'ordered'
 );
 
 -- ============================================================
@@ -336,19 +347,26 @@ INSERT INTO accounts (code, name, account_type) VALUES
 CREATE TABLE sales (
   id TEXT PRIMARY KEY,
   work_order_id TEXT,
-  item_id TEXT REFERENCES items(id),
-  lot_id TEXT REFERENCES item_lots(id),
-  quantity REAL DEFAULT 1,
-  description TEXT NOT NULL,
   customer_party_id TEXT,
   customer_name TEXT,
   reseller_name TEXT,
+  total_amount REAL NOT NULL DEFAULT 0,
+  sale_date TEXT,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE sale_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sale_id TEXT NOT NULL REFERENCES sales(id),
+  item_id TEXT REFERENCES items(id),
+  lot_id TEXT REFERENCES item_lots(id),
+  description TEXT NOT NULL,
+  quantity REAL DEFAULT 1,
   sale_price REAL NOT NULL,
   tax_rate REAL DEFAULT 0,
   tax_amount REAL DEFAULT 0,
-  total_amount REAL NOT NULL,
-  sale_date TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
+  line_total REAL NOT NULL
 );
 
 CREATE TABLE refunds (
@@ -372,6 +390,16 @@ CREATE TABLE supplier_bills (
   amount REAL NOT NULL,
   description TEXT,
   created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE supplier_bill_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  supplier_bill_id TEXT NOT NULL REFERENCES supplier_bills(id),
+  purchase_order_item_id INTEGER REFERENCES purchase_order_items(id),
+  item_id TEXT REFERENCES items(id),
+  quantity REAL,
+  rate REAL,
+  line_total REAL NOT NULL
 );
 
 CREATE TABLE expenses (

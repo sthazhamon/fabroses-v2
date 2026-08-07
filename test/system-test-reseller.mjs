@@ -16,7 +16,7 @@ async function run() {
   const perfMod = await import("../functions/api/reports/reseller-performance.js");
 
   const shimi = await (await partiesMod.onRequestPost({ request: req({ name: "SHIMI", type: "reseller", discount_tier: 2, target_amount: 5000, target_period: "monthly" }), env })).json();
-  await salesMod.onRequestPost({ request: req({ description: "Reseller sale", customer_party_id: shimi.id, reseller_name: "SHIMI", sale_price: 6000 }), env, data: {} });
+  await salesMod.onRequestPost({ request: req({ lines: [{ description: "Reseller sale", sale_price: 6000 }], customer_party_id: shimi.id, reseller_name: "SHIMI" }), env, data: {} });
 
   const perf = await (await perfMod.onRequestGet({ request: { url: "https://x/api/reports/reseller-performance?period=monthly" }, env })).json();
   const row = perf.resellers.find((r) => r.party_id === shimi.id);
