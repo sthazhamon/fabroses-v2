@@ -11,16 +11,36 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
-  :root{ --rose:#b5384f; --rose-dark:#7d2438; --cream:#fbf4ee; --ink:#2c1f24; --line:#e6d7d0; --ok:#3f7d54; --warn:#c98a2c; }
+  :root{ --rose:#b5384f; --rose-dark:#7d2438; --cream:#faf5f2; --ink:#2c1f24; --line:#ece0da; --ok:#3f7d54; --warn:#c98a2c; --shadow:0 2px 10px rgba(125,36,56,0.08); }
   *{box-sizing:border-box;}
   body{margin:0; font-family:'Segoe UI',system-ui,sans-serif; background:var(--cream); color:var(--ink);}
-  header{background:var(--rose); color:#fff; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;}
-  header h1{font-size:1.05rem; margin:0; font-weight:600;}
+  header{background:var(--rose); color:#fff; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;}
+  header h1{font-size:1.1rem; margin:0; font-weight:700; letter-spacing:0.2px;}
   header .who{font-size:0.75rem; opacity:0.9;}
   header .logout{background:none; border:1px solid rgba(255,255,255,0.6); color:#fff; border-radius:6px; padding:4px 10px; font-size:0.7rem;}
-  nav{display:flex; overflow-x:auto; background:#fff; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10;}
-  nav button{flex:0 0 auto; padding:10px 12px; background:none; border:none; font-size:0.82rem; color:#8a7278; border-bottom:3px solid transparent; white-space:nowrap;}
-  nav button.active{color:var(--rose-dark); border-bottom-color:var(--rose); font-weight:600;}
+  /* Desktop/laptop: horizontal scrolling tab strip along the top, as before. */
+  nav.top-nav{display:flex; overflow-x:auto; background:#fff; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10;}
+  nav.top-nav button{flex:0 0 auto; padding:10px 12px; background:none; border:none; font-size:0.82rem; color:#8a7278; border-bottom:3px solid transparent; white-space:nowrap;}
+  nav.top-nav button.active{color:var(--rose-dark); border-bottom-color:var(--rose); font-weight:600;}
+  /* Mobile: fixed bottom tab bar with icon + label, matching the icon-led
+     bottom-nav convention from the HDFC-style reference. Shows only the
+     handful of most relevant tabs for the current role; everything else
+     stays reachable via the "More" sheet. */
+  nav.bottom-nav{display:none;}
+  #more-sheet{display:none; position:fixed; bottom:0; left:0; width:100%; max-height:70vh; overflow-y:auto; background:#fff; border-radius:16px 16px 0 0; box-shadow:0 -4px 24px rgba(0,0,0,0.15); z-index:100; padding:10px 0 20px;}
+  #more-sheet.open{display:block;}
+  #more-overlay{display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.4); z-index:99;}
+  #more-overlay.open{display:block;}
+  #more-sheet button{width:100%; text-align:left; padding:13px 20px; background:none; border:none; font-size:0.92rem; color:var(--ink); border-bottom:1px solid var(--line);}
+  #more-sheet button.active{color:var(--rose-dark); font-weight:700;}
+  @media (max-width:720px){
+    nav.top-nav{display:none;}
+    nav.bottom-nav{display:flex; position:fixed; bottom:0; left:0; width:100%; background:#fff; border-top:1px solid var(--line); box-shadow:0 -2px 12px rgba(0,0,0,0.06); z-index:20; padding:4px 0;}
+    nav.bottom-nav button{flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; background:none; border:none; padding:6px 2px; font-size:0.62rem; color:#a08a90;}
+    nav.bottom-nav button .icon{font-size:1.2rem; line-height:1;}
+    nav.bottom-nav button.active{color:var(--rose);}
+    main{padding-bottom:76px;}
+  }
   main{padding:14px; max-width:680px; margin:0 auto;}
   .panel{display:none;} .panel.active{display:block;}
   label{display:block; font-size:0.82rem; margin:12px 0 4px; color:#7a5f66; font-weight:600;}
@@ -30,7 +50,17 @@
   button.primary{margin-top:16px; width:100%; padding:13px; background:var(--rose); color:#fff; border:none; border-radius:10px; font-size:0.95rem; font-weight:600;}
   button.secondary{margin-top:8px; width:100%; padding:11px; background:#fff; color:var(--rose-dark); border:1px solid var(--rose); border-radius:10px; font-size:0.9rem; font-weight:600;}
   button.secondary.btn-sm, button.primary.btn-sm{width:auto; margin:3px; padding:6px 12px; font-size:0.75rem;}
-  .card{background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; margin-top:14px;}
+  .card{background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px; margin-top:14px; box-shadow:var(--shadow);}
+  /* Card-based lists — each row of what used to be a table becomes its own
+     tappable card, matching the HDFC-style list convention. */
+  .card-list{display:flex; flex-direction:column; gap:8px; margin-top:8px;}
+  .list-card{background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; box-shadow:var(--shadow); display:flex; align-items:center; gap:10px;}
+  .list-card .lc-icon{width:38px; height:38px; border-radius:10px; background:var(--cream); display:flex; align-items:center; justify-content:center; font-size:1.1rem; flex:0 0 38px;}
+  .list-card .lc-body{flex:1; min-width:0;}
+  .list-card .lc-title{font-weight:600; font-size:0.88rem; margin:0 0 2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .list-card .lc-sub{font-size:0.74rem; color:#8a7278; margin:0;}
+  .list-card .lc-right{flex:0 0 auto; text-align:right;}
+  .list-card .lc-amount{font-weight:700; font-size:0.9rem; color:var(--rose-dark);}
   .code-big{font-size:1.25rem; font-weight:700; color:var(--rose-dark); letter-spacing:0.5px;}
   .stage-badge{display:inline-block; padding:3px 9px; border-radius:20px; background:var(--rose); color:#fff; font-size:0.75rem; font-weight:600;}
   .stage-pills{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
@@ -83,7 +113,10 @@
     <h1>FabRoses</h1>
     <div><span class="who" id="who-label"></span> <button class="logout" onclick="logout()">Log out</button></div>
   </header>
-  <nav id="nav-bar"></nav>
+  <nav id="nav-bar" class="top-nav"></nav>
+  <nav id="bottom-nav" class="bottom-nav"></nav>
+  <div id="more-overlay" onclick="closeMoreSheet()"></div>
+  <div id="more-sheet"></div>
   <main>
     <div id="error-banner"></div>
 
@@ -130,7 +163,11 @@
     <section class="panel" id="panel-sites">
       <h3>Sites</h3>
       <label>Name</label><input id="site-name">
-      <label>Type</label><select id="site-type"><option value="store">Store</option><option value="worker">Worker</option></select>
+      <label>Type</label><select id="site-type" onchange="toggleSiteUserLink()"><option value="store">Store</option><option value="worker">Worker</option></select>
+      <div id="site-user-link-wrap" style="display:none;">
+        <label>Link to an existing user login (optional — leave blank to create the site without one for now)</label>
+        <select id="site-user-select"><option value="">-- none --</option></select>
+      </div>
       <button class="primary" onclick="createSite()">Add site</button>
       <div id="site-result"></div>
       <div class="card"><h4 style="margin-top:0;">All sites</h4><div id="site-list" class="muted">Loading...</div></div>
@@ -155,10 +192,16 @@
       <div class="card"><h4 style="margin-top:0;">Backlog — customer orders with no work order yet</h4><div id="wo-backlog" class="muted">Loading...</div></div>
       <label>Description</label><textarea id="wo-desc" rows="2"></textarea>
       <label>Work instructions</label><textarea id="wo-instructions" rows="2"></textarea>
-      <label>Worker site (required)</label><select id="wo-worker"></select>
-      <label>Intended item (what this replenishes, optional)</label><select id="wo-intended"></select>
-      <div class="row"><div><label>Target quantity</label><input id="wo-target" type="number" step="1" value="1"></div><div><label>Priority</label><select id="wo-priority"><option value="normal">Normal</option><option value="urgent">Urgent</option></select></div></div>
+      <label>Worker site (required)</label><select id="wo-worker" onchange="refreshBomPreview()"></select>
+      <label>Job type</label><select id="wo-jobtype" onchange="toggleReworkFields()"><option value="production">Production</option><option value="rework">Rework</option></select>
+      <div id="wo-rework-wrap" style="display:none;">
+        <label>Lot being reworked</label>
+        <div class="row"><input id="wo-rework-lot" placeholder="LOT-000001"><button type="button" class="secondary btn-sm" onclick="scanAndFill('wo-rework-lot','lot')" style="flex:0 0 90px;">📷 Scan</button></div>
+      </div>
+      <label>Finished item this job produces (required)</label><select id="wo-intended" onchange="refreshBomPreview()"></select>
+      <div class="row"><div><label>Target quantity</label><input id="wo-target" type="number" step="1" value="1" onchange="refreshBomPreview()"></div><div><label>Priority</label><select id="wo-priority"><option value="normal">Normal</option><option value="urgent">Urgent</option></select></div></div>
       <label>Due date</label><input id="wo-due" type="date">
+      <div id="wo-bom-preview"></div>
       <button class="primary" onclick="createWO()">Create work order</button>
       <div id="wo-result"></div>
       <div class="card"><h4 style="margin-top:0;">All work orders</h4><div id="order-list" class="muted">Loading...</div></div>
@@ -343,6 +386,20 @@
 
 <script>
 const API = "/api";
+// Reusable card-row renderer — every list in the app builds on this instead
+// of a plain table, matching the card-based list convention.
+function renderCardList(items, opts){
+  if(!items||!items.length) return '<p class="muted">'+(opts.empty||"Nothing here yet.")+'</p>';
+  return '<div class="card-list">'+items.map(function(item){
+    const clickAttr = opts.onClick ? ' onclick="'+opts.onClick(item)+'" style="cursor:pointer;"' : '';
+    const right = opts.amount ? '<div class="lc-right"><div class="lc-amount">'+opts.amount(item)+'</div>'+(opts.rightSub?'<div class="lc-sub">'+opts.rightSub(item)+'</div>':'')+'</div>'
+      : (opts.action ? '<div class="lc-right">'+opts.action(item)+'</div>' : '');
+    return '<div class="list-card"'+clickAttr+'>'+
+      '<div class="lc-icon">'+(opts.icon?opts.icon(item):"📄")+'</div>'+
+      '<div class="lc-body"><p class="lc-title">'+opts.title(item)+'</p><p class="lc-sub">'+(opts.sub?opts.sub(item):"")+'</p></div>'+
+      right+'</div>';
+  }).join("")+'</div>';
+}
 const STAGES = ["Order Placed","Material Received","Work Started","Work Shipped"];
 
 const TABS = [
@@ -367,8 +424,21 @@ const TABS = [
   { id: "users", label: "Users", roles: ["admin"] },
 ];
 
+const TAB_ICONS = {
+  dashboard:"📊", catalogue:"🧵", sites:"🏬", po:"🧾", workorders:"🛠️", mywork:"✅",
+  dispatch:"📤", receive:"📥", co:"🛍️", sales:"💰", purchases:"🧾", expenses:"🧮",
+  receivable:"⬇️", payable:"⬆️", workerpay:"👷", journal:"📓", ledger:"📈", parties:"🧑", users:"👤",
+};
+// Only a handful of tabs fit a bottom bar — everything else lives behind "More".
+const BOTTOM_NAV_PRIORITY = {
+  worker: ["mywork"],
+  admin: ["dashboard","workorders","dispatch","sales"],
+  accountant: ["dashboard","workorders","sales","receivable"],
+  dispatch: ["dispatch","receive","workorders","po"],
+  reseller: [],
+};
 function getSession(){ const token=localStorage.getItem("fr_token"); const role=localStorage.getItem("fr_role"); const name=localStorage.getItem("fr_name"); const siteId=localStorage.getItem("fr_site"); return token?{token,role,name,siteId}:null; }
-async function apiFetch(path, opts){ opts=opts||{}; const s=getSession(); const headers=Object.assign({}, opts.headers||{}); if(s) headers["Authorization"]="Bearer "+s.token; const res=await fetch(API+path, Object.assign({},opts,{headers:headers})); if(res.status===401){logout(); throw new Error("Session expired");} const json=await res.json(); if(!res.ok) throw new Error(json.error||"Request failed"); return json; }
+async function apiFetch(path, opts){ opts=opts||{}; const s=getSession(); const headers=Object.assign({}, opts.headers||{}); if(s) headers["Authorization"]="Bearer "+s.token; const res=await fetch(API+path, Object.assign({cache:"no-store"},opts,{headers:headers})); if(res.status===401){logout(); throw new Error("Session expired");} const json=await res.json(); if(!res.ok) throw new Error(json.error||"Request failed"); return json; }
 function showError(msg){ const el=document.getElementById("error-banner"); el.textContent=msg; el.style.display="block"; setTimeout(function(){el.style.display="none";},6000); }
 
 async function doLogin(){
@@ -395,14 +465,41 @@ function boot(){
   document.getElementById("login-screen").style.display="none";
   document.getElementById("app").style.display="block";
   document.getElementById("who-label").textContent=s.name+" - "+s.role;
-  const nav=document.getElementById("nav-bar"); nav.innerHTML="";
   const visible=TABS.filter(function(t){return t.roles.indexOf(s.role)!==-1;});
+
+  const nav=document.getElementById("nav-bar"); nav.innerHTML="";
   visible.forEach(function(t,i){
     const btn=document.createElement("button"); btn.className="tab-btn"+(i===0?" active":""); btn.dataset.tab=t.id; btn.textContent=t.label;
     btn.onclick=function(){switchTab(t.id);}; nav.appendChild(btn);
   });
+
+  const priorityIds = BOTTOM_NAV_PRIORITY[s.role] || [];
+  const priorityTabs = visible.filter(function(t){return priorityIds.indexOf(t.id)!==-1;});
+  const restTabs = visible.filter(function(t){return priorityIds.indexOf(t.id)===-1;});
+  const bottomNav = document.getElementById("bottom-nav"); bottomNav.innerHTML="";
+  priorityTabs.forEach(function(t,i){
+    const btn=document.createElement("button"); btn.className="tab-btn"+(i===0?" active":""); btn.dataset.tab=t.id;
+    btn.innerHTML='<span class="icon">'+(TAB_ICONS[t.id]||"📄")+'</span><span>'+t.label+'</span>';
+    btn.onclick=function(){switchTab(t.id);}; bottomNav.appendChild(btn);
+  });
+  if(restTabs.length){
+    const moreBtn=document.createElement("button"); moreBtn.className="tab-btn"; moreBtn.dataset.tab="__more";
+    moreBtn.innerHTML='<span class="icon">☰</span><span>More</span>';
+    moreBtn.onclick=function(){openMoreSheet(restTabs);}; bottomNav.appendChild(moreBtn);
+  }
+
   document.querySelectorAll(".panel").forEach(function(p){p.classList.remove("active");});
   if(visible.length){ document.getElementById("panel-"+visible[0].id).classList.add("active"); loadTabData(visible[0].id); }
+}
+function openMoreSheet(tabs){
+  const sheet = document.getElementById("more-sheet");
+  sheet.innerHTML = tabs.map(function(t){return '<button onclick="switchTab(\''+t.id+'\');closeMoreSheet();">'+(TAB_ICONS[t.id]||"📄")+' '+t.label+'</button>';}).join("");
+  sheet.classList.add("open");
+  document.getElementById("more-overlay").classList.add("open");
+}
+function closeMoreSheet(){
+  document.getElementById("more-sheet").classList.remove("open");
+  document.getElementById("more-overlay").classList.remove("open");
 }
 function loadTabData(tabId){
   try{
@@ -410,7 +507,7 @@ function loadTabData(tabId){
     if(tabId==="catalogue"){ populateMasterDropdowns(); loadItems(); }
     if(tabId==="sites"){ loadSites(); loadStockBySite(); }
     if(tabId==="po"){ populatePartyDropdown("po-supplier-select","supplier"); loadPOs(); }
-    if(tabId==="workorders"){ loadBacklog(); populateSiteDropdown("wo-worker","worker"); populateItemDropdown("wo-intended"); loadWOs(); }
+    if(tabId==="workorders"){ loadBacklog(); populateSiteDropdown("wo-worker","worker"); populateItemDropdown("wo-intended","finished_good"); loadWOs(); }
     if(tabId==="mywork") loadMyWork();
     if(tabId==="dispatch"){ loadDispatchQueue(); loadDispatchHistory(); }
     if(tabId==="receive"){ loadReceiveQueue(); loadReceiveHistory(); }
@@ -640,7 +737,7 @@ async function viewItem(id){
   try{
     const it=await apiFetch("/items/"+id);
     const lotRows=it.lots_by_site.map(function(l){return '<tr><td>'+l.id+'</td><td>'+l.site_name+'</td><td>'+l.quantity_balance+'</td><td>'+l.source_type+'</td>'+
-      '<td><button class="secondary btn-sm" onclick=\'printQR("'+(it.item_code||it.id)+"|"+l.id+'","'+it.name+' - '+l.id+'")\'>QR</button></td></tr>';}).join("");
+      '<td><button class="secondary btn-sm" onclick=\'printQR("'+(it.item_code||it.id)+"|"+l.id+'","'+it.name+' - '+l.id+'")\'>QR</button> <button class="secondary btn-sm" onclick="viewLotHistory(\''+l.id+'\')">History</button></td></tr>';}).join("");
     const photoThumbs = (it.photos||[]).map(function(p){return '<img src="/api/photo/'+p.r2_key+'" onclick="viewFullPhoto(\''+p.r2_key+'\')" style="width:70px;height:70px;object-fit:cover;border-radius:6px;margin:3px;cursor:zoom-in;">';}).join("");
     document.getElementById("item-detail").innerHTML='<div class="card"><h4 style="margin-top:0;">'+it.name+'</h4>'+
       '<p>'+(it.item_code||it.id)+' | Total stock: '+it.total_stock+'</p>'+
@@ -652,9 +749,43 @@ async function viewItem(id){
       '<div class="row"><div><label>Price</label><input id="ei-price" type="number" step="0.01" value="'+(it.price||"")+'"></div><div><label>Cost</label><input id="ei-cost" type="number" step="0.01" value="'+(it.cost||"")+'"></div></div>'+
       '<label>Description</label><textarea id="ei-desc" rows="2">'+(it.description||"")+'</textarea>'+
       '<button class="secondary" onclick="saveItemEdit(\''+id+'\')">Save changes</button><div id="item-edit-msg"></div>'+
+      (it.item_type==="finished_good"?'<h4>Bill of Materials — raw materials this is made from</h4><div id="bom-lines"></div><button type="button" class="secondary btn-sm" onclick="addBomLine()">+ Add raw material</button><button class="secondary" onclick="saveBom(\''+id+'\')">Save BOM</button><div id="bom-msg"></div>':'')+
       (it.lots_by_site.length?'<h4>Stock lots</h4><table><tr><th>Lot</th><th>Site</th><th>Qty</th><th>Source</th><th></th></tr>'+lotRows+'</table>':'<p class="muted">No stock lots yet.</p>')+
       '<label>Add photo</label><input type="file" accept="image/*" id="item-detail-photo">'+
       '<button class="secondary" onclick="uploadItemPhoto(\''+id+'\')">Upload</button></div>';
+    if(it.item_type==="finished_good") await loadBomEditor(id);
+  }catch(e){showError(e.message);}
+}
+async function loadBomEditor(itemId){
+  const existing = await apiFetch("/items/"+itemId+"/bom");
+  document.getElementById("bom-lines").innerHTML = "";
+  if(existing.length){
+    for(const line of existing) await addBomLine(line.raw_material_item_id, line.quantity_required);
+  }
+}
+let bomLineCount = 0;
+async function addBomLine(preselectItemId, presetQty){
+  bomLineCount++;
+  const lineId = "bomline-"+bomLineCount;
+  const rawItems = await apiFetch("/items?item_type=raw_material");
+  const optionsHtml = rawItems.map(function(i){return '<option value="'+i.id+'"'+(i.id===preselectItemId?" selected":"")+'>'+i.name+(i.unit_of_measure?" ("+i.unit_of_measure+")":"")+'</option>';}).join("");
+  const row = document.createElement("div");
+  row.className = "row"; row.id = lineId; row.style.marginTop="6px";
+  row.innerHTML = '<select class="bom-line-item" style="flex:2;">'+optionsHtml+'</select>'+
+    '<input class="bom-line-qty" type="number" step="0.01" placeholder="Qty needed" value="'+(presetQty||"")+'" style="flex:1;">'+
+    '<button type="button" class="secondary btn-sm" onclick="document.getElementById(\''+lineId+'\').remove()">Remove</button>';
+  document.getElementById("bom-lines").appendChild(row);
+}
+async function saveBom(itemId){
+  try{
+    const rows = document.querySelectorAll("#bom-lines .row");
+    const lines = Array.from(rows).map(function(row){return {
+      raw_material_item_id: row.querySelector(".bom-line-item").value,
+      quantity_required: parseFloat(row.querySelector(".bom-line-qty").value),
+    };}).filter(function(l){return l.raw_material_item_id && l.quantity_required;});
+    if(!lines.length){ alert("Add at least one raw material with a quantity"); return; }
+    await apiFetch("/items/"+itemId+"/bom",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({lines:lines})});
+    document.getElementById("bom-msg").innerHTML='<p style="color:var(--ok);">BOM saved.</p>';
   }catch(e){showError(e.message);}
 }
 async function saveItemEdit(id){
@@ -675,9 +806,22 @@ async function uploadItemPhoto(id){
 }
 
 // ---------------- Sites ----------------
+async function toggleSiteUserLink(){
+  const isWorker = document.getElementById("site-type").value==="worker";
+  document.getElementById("site-user-link-wrap").style.display = isWorker?"block":"none";
+  if(isWorker){
+    const users = await apiFetch("/users");
+    const unlinked = users.filter(function(u){return u.role==="worker";});
+    document.getElementById("site-user-select").innerHTML = '<option value="">-- none --</option>'+unlinked.map(function(u){return '<option value="'+u.id+'">'+u.name+' (@'+u.username+')</option>';}).join("");
+  }
+}
 async function createSite(){
   try{
-    const res=await apiFetch("/sites",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:document.getElementById("site-name").value.trim(),site_type:document.getElementById("site-type").value})});
+    const site_type = document.getElementById("site-type").value;
+    const userSel = document.getElementById("site-user-select");
+    const res=await apiFetch("/sites",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      name:document.getElementById("site-name").value.trim(), site_type:site_type,
+      worker_user_id: (site_type==="worker" && userSel.value)?parseInt(userSel.value):null })});
     document.getElementById("site-result").innerHTML='<p style="color:var(--ok);">Added '+res.id+'</p>';
     document.getElementById("site-name").value="";
     loadSites();
@@ -686,9 +830,27 @@ async function createSite(){
 async function loadSites(){
   try{
     const list=await apiFetch("/sites");
-    const rows=list.map(function(s){return '<tr><td>'+s.id+'</td><td>'+s.name+'</td><td>'+s.site_type+'</td></tr>';}).join("");
-    document.getElementById("site-list").innerHTML=list.length?'<table><tr><th>ID</th><th>Name</th><th>Type</th></tr>'+rows+'</table>':"No sites yet.";
+    document.getElementById("site-list").innerHTML = renderCardList(list, {
+      icon: function(s){return s.site_type==="worker"?"🧵":"🏬";}, title: function(s){return s.name;},
+      sub: function(s){return s.site_type==="worker"?(s.worker_name?"@"+s.worker_username:"no login linked"):s.site_type;},
+      action: function(s){return s.site_type==="worker"?'<button class="secondary btn-sm" onclick="attachUserToSite(\''+s.id+'\')">'+(s.worker_user_id?"Change":"Attach")+'</button>':"";},
+      empty: "No sites yet.",
+    });
   }catch(e){document.getElementById("site-list").textContent=e.message;}
+}
+async function attachUserToSite(siteId){
+  try{
+    const users = await apiFetch("/users");
+    const workerUsers = users.filter(function(u){return u.role==="worker";});
+    if(!workerUsers.length){ alert("No worker-role logins exist yet — create one in Users first."); return; }
+    const options = workerUsers.map(function(u,i){return (i+1)+". "+u.name+" (@"+u.username+")";}).join("\n");
+    const choice = prompt("Which user should this site link to? Enter the number:\n"+options);
+    if(choice===null) return;
+    const idx = parseInt(choice)-1;
+    if(isNaN(idx) || !workerUsers[idx]){ alert("Not a valid choice"); return; }
+    await apiFetch("/sites/"+siteId,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({worker_user_id:workerUsers[idx].id})});
+    loadSites();
+  }catch(e){showError(e.message);}
 }
 let __stockBySiteRaw = null;
 async function loadStockBySite(){
@@ -707,7 +869,8 @@ async function loadStockBySite(){
         return '<tr><td>'+agg.item_name+'</td><td>'+agg.total+'</td><td><button class="secondary btn-sm" onclick="toggleLotExpand(\''+rowId+'\')">Show lots</button></td></tr>'+
           '<tr id="'+rowId+'" style="display:none;"><td colspan="3">'+agg.lots.map(function(l){return '<div class="row" style="margin:4px 0;"><span style="flex:2;">'+l.id+'</span>'+
             '<input id="lotqty-'+l.id+'" type="number" step="0.1" value="'+l.quantity_balance+'" style="flex:1;">'+
-            '<button class="secondary btn-sm" onclick="saveLotQty(\''+l.id+'\')">Save</button></div>';}).join("")+'</td></tr>';
+            '<button class="secondary btn-sm" onclick="saveLotQty(\''+l.id+'\')">Save</button>'+
+            '<button class="secondary btn-sm" onclick="viewLotHistory(\''+l.id+'\')">History</button></div>';}).join("")+'</td></tr>';
       }).join("");
       return '<p><b>'+entry.site.name+'</b> ('+entry.site.site_type+')</p>'+(rows?'<table><tr><th>Item</th><th>Total qty</th><th></th></tr>'+rows+'</table>':'<p class="muted">Empty</p>');
     }).join("");
@@ -723,6 +886,25 @@ async function saveLotQty(lotId){
     const newQty = parseFloat(document.getElementById("lotqty-"+lotId).value);
     await apiFetch("/item-lots/"+lotId,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_balance:newQty})});
     loadStockBySite();
+  }catch(e){showError(e.message);}
+}
+async function viewLotHistory(lotId){
+  try{
+    const h = await apiFetch("/item-lots/"+lotId+"/history");
+    const rows = h.movements.map(function(m){
+      let line = m.event_type;
+      if(m.from_site_name||m.to_site_name) line += ": "+(m.from_site_name||"-")+" → "+(m.to_site_name||"-");
+      if(m.work_order_description) line += " ("+m.work_order_description+")";
+      return '<tr><td>'+m.created_at+'</td><td>'+line+'</td><td>'+m.quantity+'</td><td>'+(m.created_by||"-")+'</td></tr>';
+    }).join("");
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9998;display:flex;align-items:center;justify-content:center;";
+    overlay.innerHTML = '<div class="card" style="max-width:500px;width:92%;max-height:85vh;overflow:auto;">'+
+      '<h4 style="margin-top:0;">Full history — '+lotId+'</h4>'+
+      '<p class="muted">'+h.lot.item_name+' ('+(h.lot.item_code||h.lot.item_id)+')</p>'+
+      (rows?'<table><tr><th>When</th><th>Event</th><th>Qty</th><th>By</th></tr>'+rows+'</table>':'<p class="muted">No movements recorded.</p>')+
+      '<button class="secondary" onclick="this.closest(\'div[style*=fixed]\').remove()">Close</button></div>';
+    document.body.appendChild(overlay);
   }catch(e){showError(e.message);}
 }
 
@@ -764,11 +946,10 @@ async function createPO(){
 async function loadPOs(){
   try{
     const list=await apiFetch("/purchase-orders");
-    const rows=list.map(function(po){
-      return '<tr><td>'+po.id+'</td><td>'+po.supplier_name+'</td><td>'+po.items.length+' line(s)</td><td>'+po.status+'</td>'+
-        '<td><button class="secondary btn-sm" onclick="viewPO(\''+po.id+'\')">View</button></td></tr>';
-    }).join("");
-    document.getElementById("po-list").innerHTML=list.length?'<table><tr><th>Order</th><th>Supplier</th><th>Lines</th><th>Status</th><th></th></tr>'+rows+'</table>':"No orders yet.";
+    document.getElementById("po-list").innerHTML = renderCardList(list, {
+      icon: function(){return "🧾";}, title: function(po){return po.supplier_name;}, sub: function(po){return po.id+' · '+po.items.length+' line(s) · '+po.status;},
+      onClick: function(po){return "viewPO('"+po.id+"')";}, empty: "No orders yet.",
+    });
   }catch(e){document.getElementById("po-list").textContent=e.message;}
 }
 async function viewPO(id){
@@ -794,52 +975,108 @@ async function receivePOLine(lineId, poId){
 async function loadBacklog(){
   try{
     const list = await apiFetch("/customer-orders");
-    const backlog = list.filter(function(o){return !o.linked_work_order_id && o.status!=="cancelled" && o.status!=="billed" && o.status!=="shipped";});
-    if(!backlog.length){document.getElementById("wo-backlog").innerHTML="Nothing waiting on a work order.";return;}
-    const rows = [];
-    backlog.forEach(function(o){
+    const eligible = list.filter(function(o){return o.status!=="cancelled" && o.status!=="billed" && o.status!=="shipped";});
+    const flat = [];
+    eligible.forEach(function(o){
       o.items.forEach(function(line){
-        rows.push('<tr><td>'+o.id+'</td><td>'+o.customer_name+'</td><td>'+(line.item_name||line.description)+' x'+line.quantity+'</td>'+
-          '<td><button class="secondary btn-sm" onclick="prefillWOFromOrder(\''+o.id+'\',\''+(line.item_id||"")+'\',\''+line.quantity+'\')">Create WO for this</button></td></tr>');
+        if(line.linked_work_order_id) return;
+        flat.push({ order: o, line: line });
       });
     });
-    document.getElementById("wo-backlog").innerHTML = '<table><tr><th>Order</th><th>Customer</th><th>Item</th><th></th></tr>'+rows.join("")+'</table>';
+    document.getElementById("wo-backlog").innerHTML = renderCardList(flat, {
+      icon: function(){return "⏳";}, title: function(f){return (f.line.item_name||f.line.description)+" x"+f.line.quantity;},
+      sub: function(f){return f.order.id+' · '+f.order.customer_name;},
+      action: function(f){return '<button class="secondary btn-sm" onclick="prefillWOFromOrder(\''+f.order.id+'\',\''+(f.line.item_id||"")+'\',\''+f.line.quantity+'\',\''+f.line.id+'\')">Create WO</button>';},
+      empty: "Nothing waiting on a work order.",
+    });
   }catch(e){document.getElementById("wo-backlog").textContent=e.message;}
 }
 let prefillCustomerOrderId = null;
-function prefillWOFromOrder(coId, itemId, qty){
+let prefillCustomerOrderItemId = null;
+function prefillWOFromOrder(coId, itemId, qty, lineId){
   prefillCustomerOrderId = coId;
+  prefillCustomerOrderItemId = lineId;
   if(itemId) document.getElementById("wo-intended").value = itemId;
   document.getElementById("wo-target").value = qty;
   document.getElementById("wo-desc").value = "For order "+coId;
   window.scrollTo(0,document.body.scrollHeight/3);
 }
+function toggleReworkFields(){
+  const isRework = document.getElementById("wo-jobtype").value==="rework";
+  document.getElementById("wo-rework-wrap").style.display = isRework?"block":"none";
+  document.getElementById("wo-bom-preview").innerHTML = "";
+}
+async function refreshBomPreview(){
+  const jobType = document.getElementById("wo-jobtype").value;
+  if(jobType==="rework"){ document.getElementById("wo-bom-preview").innerHTML=""; return; }
+  const intendedItemId = document.getElementById("wo-intended").value;
+  const workerSiteId = document.getElementById("wo-worker").value;
+  const targetQty = parseFloat(document.getElementById("wo-target").value)||1;
+  if(!intendedItemId || !workerSiteId){ document.getElementById("wo-bom-preview").innerHTML=""; return; }
+  try{
+    const res = await apiFetch("/work-orders/bom-preview?intended_item_id="+intendedItemId+"&worker_site_id="+workerSiteId+"&target_quantity="+targetQty);
+    if(!res.lines.length){ document.getElementById("wo-bom-preview").innerHTML='<p class="muted">No BOM set for this item — add one in Catalogue if this job needs raw material tracked.</p>'; return; }
+    const rows = res.lines.map(function(l){
+      const note = l.worker_stock>=l.suggested_quantity ? "already at worker" : (l.store_stock>=l.suggested_quantity ? "will dispatch from store" : "not enough anywhere yet");
+      return '<div class="row" style="margin:4px 0;"><span style="flex:2;">'+l.raw_material_name+'</span>'+
+        '<input class="bom-preview-qty" data-item-id="'+l.raw_material_item_id+'" type="number" step="0.01" value="'+l.suggested_quantity+'" style="flex:1;">'+
+        '<span class="muted" style="flex:2;font-size:0.72rem;">'+note+' (worker: '+l.worker_stock+', store: '+l.store_stock+')</span></div>';
+    }).join("");
+    document.getElementById("wo-bom-preview").innerHTML = '<div class="card"><h4 style="margin-top:0;">Material needed (editable)</h4>'+rows+'</div>';
+  }catch(e){ document.getElementById("wo-bom-preview").innerHTML=""; }
+}
 async function createWO(){
   try{
     const worker_site_id = document.getElementById("wo-worker").value;
+    const intended_item_id = document.getElementById("wo-intended").value;
+    const job_type = document.getElementById("wo-jobtype").value;
     if(!worker_site_id){ alert("A worker must be assigned to create a work order"); return; }
+    if(!intended_item_id){ alert("The finished item this job produces is required"); return; }
+    if(job_type==="rework" && !document.getElementById("wo-rework-lot").value.trim()){ alert("Rework jobs need the specific lot being reworked"); return; }
+
+    let material_lines = null;
+    const previewRows = document.querySelectorAll(".bom-preview-qty");
+    if(previewRows.length){
+      material_lines = Array.from(previewRows).map(function(inp){return {raw_material_item_id: inp.dataset.itemId, quantity: parseFloat(inp.value)};});
+    }
+
     const res=await apiFetch("/work-orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       description:document.getElementById("wo-desc").value.trim(), work_instructions:document.getElementById("wo-instructions").value.trim(),
-      worker_site_id:worker_site_id, intended_item_id:document.getElementById("wo-intended").value||null,
+      worker_site_id:worker_site_id, intended_item_id:intended_item_id, job_type:job_type,
+      rework_lot_id: job_type==="rework"?document.getElementById("wo-rework-lot").value.trim():null,
       target_quantity:parseFloat(document.getElementById("wo-target").value)||1, priority:document.getElementById("wo-priority").value,
-      due_date:document.getElementById("wo-due").value||null, related_customer_order_id: prefillCustomerOrderId })});
-    document.getElementById("wo-result").innerHTML='<p style="color:var(--ok);">Created '+res.id+'</p>';
+      due_date:document.getElementById("wo-due").value||null, related_customer_order_id: prefillCustomerOrderId, related_customer_order_item_id: prefillCustomerOrderItemId,
+      material_lines: material_lines })});
+
+    const bomSummary = (res.bom_results||[]).map(function(r){
+      if(r.resolution==="already_at_worker") return r.raw_material_item_id+": already had enough";
+      if(r.resolution==="dispatch_created") return r.raw_material_item_id+": dispatch created ("+r.dispatch_id+")";
+      return r.raw_material_item_id+": not enough anywhere — will show in Dispatch queue";
+    }).join("; ");
+    document.getElementById("wo-result").innerHTML='<p style="color:var(--ok);">Created '+res.id+'</p>'+(bomSummary?'<p class="muted">'+bomSummary+'</p>':'');
     prefillCustomerOrderId = null;
+    prefillCustomerOrderItemId = null;
     document.getElementById("wo-desc").value="";
     document.getElementById("wo-instructions").value="";
     document.getElementById("wo-worker").value="";
     document.getElementById("wo-intended").value="";
+    document.getElementById("wo-jobtype").value="production";
+    document.getElementById("wo-rework-lot").value="";
+    toggleReworkFields();
     document.getElementById("wo-target").value="1";
     document.getElementById("wo-due").value="";
+    document.getElementById("wo-bom-preview").innerHTML="";
     loadWOs(); loadBacklog();
   }catch(e){showError(e.message);}
 }
 async function loadWOs(){
   try{
     const list=await apiFetch("/work-orders");
-    const rows=list.map(function(w){return '<tr><td>'+w.id+'</td><td>'+w.description+'</td><td><span class="stage-badge">'+w.stage+'</span></td><td>'+w.received_quantity_total+'/'+w.target_quantity+'</td>'+
-      '<td><button class="secondary btn-sm" onclick="viewWO(\''+w.id+'\')">View</button></td></tr>';}).join("");
-    document.getElementById("order-list").innerHTML=list.length?'<table><tr><th>Code</th><th>Desc</th><th>Stage</th><th>Progress</th><th></th></tr>'+rows+'</table>':"No work orders yet.";
+    document.getElementById("order-list").innerHTML = renderCardList(list, {
+      icon: function(w){return w.job_type==="rework"?"🔧":"🧵";}, title: function(w){return w.description;},
+      sub: function(w){return w.id+' · '+(w.cancelled_at?"Cancelled":w.stage)+' · '+w.received_quantity_total+'/'+w.target_quantity;},
+      onClick: function(w){return "viewWO('"+w.id+"')";}, empty: "No work orders yet.",
+    });
   }catch(e){document.getElementById("order-list").textContent=e.message;}
 }
 async function viewWO(id){
@@ -847,24 +1084,52 @@ async function viewWO(id){
     const w=await apiFetch("/work-orders/"+id);
     const issueRows=(w.issues||[]).map(function(i){return '<tr><td>'+i.item_name+'</td><td>'+i.quantity_issued+'</td><td>'+i.status+'</td></tr>';}).join("");
     const canStart = w.stage==="Order Placed" || w.stage==="Material Received";
+    const canCancel = !w.closed_at && !w.cancelled_at && w.stage!=="Work Shipped";
+    const openRework = (w.rework_issues||[]).filter(function(r){return r.status!=="received";});
+    const reworkSection = w.job_type==="rework" ? (
+      openRework.length ? openRework.map(function(r){return '<div class="card"><p>Rework issue '+r.id+' — '+r.status+' | Issued: '+r.quantity_issued+' | Accounted: '+(r.quantity_returned+r.quantity_wasted)+'</p>'+
+        '<label>Returned</label><input id="rwk-ret-'+r.id+'" type="number" step="0.01" value="0">'+
+        '<label>Wasted</label><input id="rwk-waste-'+r.id+'" type="number" step="0.01" value="0">'+
+        '<button class="secondary btn-sm" onclick="confirmReworkReturn(\''+r.id+'\',\''+w.id+'\')">Confirm return</button><div id="rwk-msg-'+r.id+'"></div></div>';}).join("")
+      : (canCancel?'<h4>Send for rework</h4><p class="muted">Lot: '+(w.rework_lot_id||"-")+'</p><button class="secondary" onclick="issueRework(\''+w.id+'\')">Create dispatch</button><div id="wo-rework-issue-msg"></div>':'')
+    ) : "";
     document.getElementById("wo-detail").innerHTML='<div class="card"><div class="code-big">'+w.id+'</div>'+
-      '<p>'+w.description+'</p><p>Worker: <b>'+(w.worker_site_name||"")+'</b> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
-      '<p>Stage: <span class="stage-badge">'+w.stage+'</span>'+(canStart?' <button class="secondary btn-sm" onclick="advanceStage(\''+w.id+'\',\'Work Started\')">Mark Work Started</button>':'')+'</p>'+
+      '<p>'+w.description+' <span class="muted">('+w.job_type+')</span></p><p>Worker: <b>'+(w.worker_site_name||"")+'</b> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
+      '<p>Stage: <span class="stage-badge">'+(w.cancelled_at?"Cancelled":w.stage)+'</span>'+(canStart?' <button class="secondary btn-sm" onclick="advanceStage(\''+w.id+'\',\'Work Started\')">Mark Work Started</button>':'')+'</p>'+
       '<p class="muted">Material Received and Work Shipped are set automatically by the dispatch engine, not manually here.</p>'+
-      '<h4>Reassign worker</h4><select id="wo-reassign"></select><button class="secondary" onclick="reassignWorker(\''+w.id+'\')">Reassign</button><div id="wo-reassign-msg"></div>'+
+      (canCancel?'<button class="secondary btn-sm" onclick="cancelWO(\''+w.id+'\')" style="border-color:var(--warn);color:var(--warn);">Cancel this job</button><p class="muted">Wrong worker assigned? Cancel this and create a fresh work order for the right person — reassigning isn\'t supported, since it would leave material tracking pointing at the wrong site.</p><div id="wo-cancel-msg"></div>':'')+
+      reworkSection+
       (issueRows?'<h4>Material issued</h4><table><tr><th>Item</th><th>Qty</th><th>Status</th></tr>'+issueRows+'</table>':'')+
-      '<h4>Issue material (creates a pending dispatch)</h4><label>Lot ID</label><div class="row"><input id="wo-issue-lot" placeholder="LOT-000001"><button type="button" class="secondary btn-sm" onclick="scanAndFill(\'wo-issue-lot\',\'lot\')" style="flex:0 0 90px;">📷 Scan</button></div>'+
+      (canCancel && w.job_type==="production"?'<h4>Issue material (creates a pending dispatch)</h4><label>Lot ID</label><div class="row"><input id="wo-issue-lot" placeholder="LOT-000001"><button type="button" class="secondary btn-sm" onclick="scanAndFill(\'wo-issue-lot\',\'lot\')" style="flex:0 0 90px;">📷 Scan</button></div>'+
       '<label>Quantity</label><input id="wo-issue-qty" type="number" step="0.1">'+
-      '<button class="secondary" onclick="issueMaterial(\''+w.id+'\')">Create dispatch</button><div id="wo-issue-msg"></div>'+
+      '<button class="secondary" onclick="issueMaterial(\''+w.id+'\')">Create dispatch</button><div id="wo-issue-msg"></div>':'')+
       '<p class="muted">Receiving the finished good back now happens through the Dispatch/Receive tabs, once the worker ships it — see the Receive tab.</p>'+
       (w.photos&&w.photos.length?'<p class="muted">'+w.photos.length+' work-in-progress photo(s) on file.</p>':'')+
       '</div>';
-    await populateSiteDropdown("wo-reassign","worker");
   }catch(e){showError(e.message);}
 }
-async function reassignWorker(id){
-  try{ await apiFetch("/work-orders/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({worker_site_id:document.getElementById("wo-reassign").value})});
-    document.getElementById("wo-reassign-msg").innerHTML='<p style="color:var(--ok);">Reassigned.</p>'; viewWO(id); }catch(e){showError(e.message);}
+async function issueRework(id){
+  try{
+    const res = await apiFetch("/work-orders/"+id+"/issue-rework",{method:"POST",headers:{"Content-Type":"application/json"}});
+    document.getElementById("wo-rework-issue-msg").innerHTML='<p style="color:var(--ok);">Dispatch '+res.dispatch_id+' created — go to Dispatch to pick and send it.</p>';
+  }catch(e){showError(e.message);}
+}
+async function confirmReworkReturn(issueId, woId){
+  try{
+    const returned = parseFloat(document.getElementById("rwk-ret-"+issueId).value)||0;
+    const wasted = parseFloat(document.getElementById("rwk-waste-"+issueId).value)||0;
+    const res = await apiFetch("/rework-issues/"+issueId+"/return",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_returned:returned,quantity_wasted:wasted})});
+    document.getElementById("rwk-msg-"+issueId).innerHTML='<p style="color:var(--ok);">'+(res.fully_reconciled?"Fully closed.":"Recorded — "+res.still_unaccounted+" still outstanding.")+'</p>';
+    viewWO(woId);
+  }catch(e){showError(e.message);}
+}
+async function cancelWO(id){
+  if(!confirm("Cancel this work order? Any material already issued stays where it is — you'll still need to return/reconcile it separately.")) return;
+  try{
+    const res = await apiFetch("/work-orders/"+id+"/cancel",{method:"POST",headers:{"Content-Type":"application/json"}});
+    document.getElementById("wo-cancel-msg").innerHTML='<p style="color:var(--ok);">Cancelled.'+(res.outstanding_material_issues>0?' Note: '+res.outstanding_material_issues+' material issue(s) still need reconciling.':'')+'</p>';
+    viewWO(id); loadWOs(); loadBacklog();
+  }catch(e){showError(e.message);}
 }
 async function advanceStage(id, stage){
   try{ await apiFetch("/work-orders/"+id+"/stage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({stage:stage,changed_by:getSession().name})}); viewWO(id); loadWOs(); }catch(e){showError(e.message);}
@@ -882,20 +1147,28 @@ async function issueMaterial(id){
 async function loadMyWork(){
   try{
     const wp = await apiFetch("/worker-place");
-    const orderRows = wp.pending_orders.map(function(o){return '<tr><td>'+o.id+'</td><td>'+o.description+'</td><td><span class="stage-badge">'+o.stage+'</span></td><td>'+o.received_quantity_total+'/'+o.target_quantity+'</td>'+
-      '<td><button class="secondary btn-sm" onclick="viewMyWorkOrder(\''+o.id+'\')">Open</button></td></tr>';}).join("");
-    const incomingRows = wp.incoming_to_confirm.map(function(d){return '<tr><td>'+d.id+'</td><td>'+d.dispatch_type+'</td>'+
-      '<td><button class="secondary btn-sm" onclick="confirmMyIncoming(\''+d.id+'\')">Confirm received</button></td></tr>';}).join("");
-    const outgoingRows = wp.outgoing_to_ship.map(function(d){return '<tr><td>'+d.id+'</td><td>'+d.status+'</td>'+
-      '<td><button class="secondary btn-sm" onclick="manageMyOutgoing(\''+d.id+'\')">Pick / Ship</button></td></tr>';}).join("");
+    const incomingHtml = renderCardList(wp.incoming_to_confirm, {
+      icon: function(){return "📦";}, title: function(d){return d.id;}, sub: function(d){return d.dispatch_type;},
+      action: function(d){return '<button class="secondary btn-sm" onclick="confirmMyIncoming(\''+d.id+'\')">Confirm</button>';}, empty: "Nothing waiting.",
+    });
+    const orderHtml = renderCardList(wp.pending_orders, {
+      icon: function(){return "🧵";}, title: function(o){return o.description;},
+      sub: function(o){return o.id+' · '+o.stage+' · '+o.received_quantity_total+'/'+o.target_quantity;},
+      onClick: function(o){return "viewMyWorkOrder('"+o.id+"')";}, empty: "Nothing pending.",
+    });
+    const outgoingHtml = renderCardList(wp.outgoing_to_ship, {
+      icon: function(){return "🚚";}, title: function(d){return d.id;}, sub: function(d){return d.status;},
+      action: function(d){return '<button class="secondary btn-sm" onclick="manageMyOutgoing(\''+d.id+'\')">Pick/Ship</button>';}, empty: "Nothing pending.",
+    });
+    const stockHtml = renderCardList(wp.own_stock, {
+      icon: function(){return "📋";}, title: function(l){return l.item_name;}, sub: function(l){return l.id;},
+      amount: function(l){return l.quantity_balance;}, empty: "None.",
+    });
     document.getElementById("mywork-content").innerHTML =
-      '<h4>Material waiting for me to confirm ('+wp.incoming_to_confirm.length+')</h4>'+
-      (wp.incoming_to_confirm.length?'<table><tr><th>Dispatch</th><th>Type</th><th></th></tr>'+incomingRows+'</table>':'<p class="muted">Nothing waiting.</p>')+
-      '<h4>My pending jobs ('+wp.pending_orders.length+')</h4>'+
-      (wp.pending_orders.length?'<table><tr><th>WO</th><th>Desc</th><th>Stage</th><th>Progress</th><th></th></tr>'+orderRows+'</table>':'<p class="muted">Nothing pending.</p>')+
-      '<h4>My outgoing to pick/ship ('+wp.outgoing_to_ship.length+')</h4>'+
-      (wp.outgoing_to_ship.length?'<table><tr><th>Dispatch</th><th>Status</th><th></th></tr>'+outgoingRows+'</table>':'<p class="muted">Nothing pending.</p>')+
-      '<h4>My own stock</h4>'+(wp.own_stock.length?'<table><tr><th>Item</th><th>Qty</th></tr>'+wp.own_stock.map(function(l){return '<tr><td>'+l.item_name+'</td><td>'+l.quantity_balance+'</td></tr>';}).join("")+'</table>':'<p class="muted">None.</p>');
+      '<h4>Material waiting for me to confirm ('+wp.incoming_to_confirm.length+')</h4>'+incomingHtml+
+      '<h4>My pending jobs ('+wp.pending_orders.length+')</h4>'+orderHtml+
+      '<h4>My outgoing to pick/ship ('+wp.outgoing_to_ship.length+')</h4>'+outgoingHtml+
+      '<h4>My own stock</h4>'+stockHtml;
   }catch(e){document.getElementById("mywork-content").textContent=e.message;}
 }
 async function confirmMyIncoming(dispatchId){
@@ -933,14 +1206,24 @@ async function shipMyOutgoing(dispatchId){
 async function viewMyWorkOrder(id){
   try{
     const w = await apiFetch("/work-orders/"+id);
+    const isDone = w.stage==="Work Shipped" || w.closed_at;
+    if(isDone){
+      document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+w.id+'</div><p>'+w.description+'</p>'+
+        '<p>Stage: <span class="stage-badge">'+w.stage+'</span> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
+        '<p class="muted">This job has already been shipped back — nothing left to do here. It\'s now waiting on the store to confirm receipt.</p>'+
+        (w.photos&&w.photos.length?'<p class="muted">'+w.photos.length+' work-in-progress photo(s) on file.</p>':'')+'</div>';
+      return;
+    }
     document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+w.id+'</div><p>'+w.description+'</p>'+
       '<p>Stage: <span class="stage-badge">'+w.stage+'</span> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
       (w.stage==="Material Received"?'<button class="secondary" onclick="startMyWork(\''+w.id+'\')">Start work</button><div id="mywork-start-msg"></div>':'')+
       '<h4>Add a work-in-progress photo</h4><input type="file" accept="image/*" id="mywork-photo">'+
       '<button class="secondary" onclick="uploadMyWIPPhoto(\''+w.id+'\')">Upload</button><div id="mywork-photo-msg"></div>'+
       (w.photos&&w.photos.length?'<p class="muted">'+w.photos.length+' photo(s) added so far.</p>':'')+
-      '<h4>Ship the finished piece back</h4><label>Existing item ID (or leave blank)</label><div class="row"><input id="mywork-ship-item"><button type="button" class="secondary btn-sm" onclick="scanAndFill(\'mywork-ship-item\',\'item\')" style="flex:0 0 90px;">📷 Scan</button></div>'+
-      '<label>Or new item name</label><input id="mywork-ship-newname">'+
+      '<h4>Ship the finished piece back</h4>'+
+      (w.intended_item_id?'<p class="muted">Item: '+(w.intended_item_name||w.intended_item_id)+'</p>':
+        '<label>Existing item ID (or leave blank)</label><input id="mywork-ship-item">'+
+        '<label>Or new item name</label><input id="mywork-ship-newname">')+
       '<label>Quantity</label><input id="mywork-ship-qty" type="number" step="1" value="1">'+
       '<button class="secondary" onclick="shipBackFromMyWork(\''+w.id+'\')">Ship back</button><div id="mywork-shipback-msg"></div></div>';
   }catch(e){showError(e.message);}
@@ -956,8 +1239,10 @@ async function uploadMyWIPPhoto(id){
 }
 async function shipBackFromMyWork(id){
   try{
-    const output_item_id=document.getElementById("mywork-ship-item").value.trim()||null;
-    const new_item_name=document.getElementById("mywork-ship-newname").value.trim()||null;
+    const itemField = document.getElementById("mywork-ship-item");
+    const newNameField = document.getElementById("mywork-ship-newname");
+    const output_item_id = itemField ? itemField.value.trim()||null : null;
+    const new_item_name = newNameField ? newNameField.value.trim()||null : null;
     const quantity=parseFloat(document.getElementById("mywork-ship-qty").value);
     const res = await apiFetch("/work-orders/"+id+"/ship-back",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({output_item_id:output_item_id,new_item_name:new_item_name,quantity:quantity})});
     const warningLine = res.mismatch ? '<p class="warn-row">Note: this doesn\'t match what this job was meant to produce — allowed, but worth double-checking.</p>' : '';
@@ -970,22 +1255,27 @@ async function shipBackFromMyWork(id){
 async function loadDispatchQueue(){
   try{
     const q=await apiFetch("/dispatch-queue");
-    const shipRows=q.customer_shipments.map(function(o){return '<tr><td>'+o.id+'</td><td>'+o.customer_name+'</td><td>'+(o.items?o.items.map(function(l){return l.item_name||l.description;}).join(", "):"")+'</td>'+
-      '<td><button class="secondary btn-sm" onclick="switchTab(\'co\');viewCO(\''+o.id+'\')">Go ship</button></td></tr>';}).join("");
-    const matRows=q.material_to_workers.map(function(w){return '<tr><td>'+w.id+'</td><td>'+w.description+'</td><td>'+w.worker_site_name+'</td>'+
-      '<td><button class="secondary btn-sm" onclick="switchTab(\'workorders\');viewWO(\''+w.id+'\')">Issue material</button></td></tr>';}).join("");
+    const shipHtml = renderCardList(q.customer_shipments, {
+      icon: function(){return "🎁";}, title: function(o){return o.customer_name;},
+      sub: function(o){return o.id+' · '+(o.items?o.items.map(function(l){return l.item_name||l.description;}).join(", "):"");},
+      action: function(o){return '<button class="secondary btn-sm" onclick="switchTab(\'co\');viewCO(\''+o.id+'\')">Go ship</button>';},
+    });
+    const matHtml = renderCardList(q.material_to_workers, {
+      icon: function(){return "🧵";}, title: function(w){return w.description;}, sub: function(w){return w.id+' · '+w.worker_site_name;},
+      action: function(w){return '<button class="secondary btn-sm" onclick="switchTab(\'workorders\');viewWO(\''+w.id+'\')">Issue material</button>';},
+    });
 
     const allDispatches = await apiFetch("/dispatches");
     const pendingDispatches = allDispatches.filter(function(d){return d.status!=="shipped"&&d.status!=="received";});
-    const dispRows = pendingDispatches.map(function(d){return '<tr><td>'+d.id+'</td><td>'+d.dispatch_type+'</td><td>'+d.status+'</td>'+
-      '<td><button class="secondary btn-sm" onclick="openDispatchAction(\''+d.id+'\')">Act on it</button></td></tr>';}).join("");
+    const dispHtml = renderCardList(pendingDispatches, {
+      icon: function(){return "📤";}, title: function(d){return d.id;}, sub: function(d){return d.dispatch_type+' · '+(d.item_summary||"-")+' · '+d.status;},
+      action: function(d){return '<button class="secondary btn-sm" onclick="openDispatchAction(\''+d.id+'\')">Act on it</button>';}, empty: "Nothing in progress.",
+    });
 
     document.getElementById("dispatch-queue").innerHTML=
       '<h4>Needs a dispatch created</h4>'+
-      (q.customer_shipments.length?'<table><tr><th>Order</th><th>Customer</th><th>Item</th><th></th></tr>'+shipRows+'</table>':'')+
-      (q.material_to_workers.length?'<table><tr><th>WO</th><th>Desc</th><th>Worker</th><th></th></tr>'+matRows+'</table>':'')+
-      (!q.customer_shipments.length && !q.material_to_workers.length ? '<p class="muted">Nothing new needs a dispatch.</p>' : '')+
-      '<h4>In progress (pick / ship)</h4>'+(pendingDispatches.length?'<table><tr><th>ID</th><th>Type</th><th>Status</th><th></th></tr>'+dispRows+'</table>':'<p class="muted">Nothing in progress.</p>');
+      (q.customer_shipments.length || q.material_to_workers.length ? shipHtml+matHtml : '<p class="muted">Nothing new needs a dispatch.</p>')+
+      '<h4>In progress (pick / ship)</h4>'+dispHtml;
   }catch(e){document.getElementById("dispatch-queue").textContent=e.message;}
 }
 async function openDispatchAction(dispatchId){
@@ -1026,15 +1316,43 @@ async function loadDispatchHistory(){
     const from=document.getElementById("disp-hist-from").value, to=document.getElementById("disp-hist-to").value;
     let list=await apiFetch("/dispatches");
     if(from&&to) list=list.filter(function(d){return d.shipped_at && d.shipped_at.slice(0,10)>=from && d.shipped_at.slice(0,10)<=to;});
-    const rows=list.filter(function(d){return d.status==="shipped"||d.status==="received";}).slice(0,50).map(function(d){return '<tr><td>'+d.id+'</td><td>'+d.dispatch_type+'</td><td>'+(d.from_site_name||"-")+' → '+(d.to_site_name||"-")+'</td><td>'+(d.courier||"-")+' '+(d.tracking_id||"")+'</td><td>'+d.status+'</td>'+
-      '<td><button class="secondary btn-sm" onclick="editDispatchTracking(\''+d.id+'\')">Edit tracking</button></td></tr>';}).join("");
-    document.getElementById("dispatch-history").innerHTML=rows?'<table><tr><th>ID</th><th>Type</th><th>Route</th><th>Courier</th><th>Status</th><th></th></tr>'+rows+'</table>':'<p class="muted">Nothing shipped yet in this range.</p>';
+    const filtered = list.filter(function(d){return d.status==="shipped"||d.status==="received";}).slice(0,50);
+    document.getElementById("dispatch-history").innerHTML = renderCardList(filtered, {
+      icon: function(){return "✅";}, title: function(d){return d.id+' · '+d.dispatch_type;},
+      sub: function(d){return (d.from_site_name||"-")+' → '+(d.to_site_name||"-")+' · '+(d.courier||"-")+' '+(d.tracking_id||"")+' · '+d.status;},
+      action: function(d){return '<button class="secondary btn-sm" onclick="editDispatchTracking(\''+d.id+'\')">Tracking</button>';},
+      empty: "Nothing shipped yet in this range.",
+    });
   }catch(e){document.getElementById("dispatch-history").textContent=e.message;}
 }
 async function editDispatchTracking(id){
-  const courier = prompt("Courier:"); if(courier===null) return;
-  const tracking_id = prompt("Tracking ID:"); if(tracking_id===null) return;
-  try{ await apiFetch("/dispatches/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({courier:courier,tracking_id:tracking_id})}); loadDispatchHistory(); }catch(e){showError(e.message);}
+  try{
+    const info = await apiFetch("/dispatches/"+id+"/tracking");
+    const noteRows = info.notes.map(function(n){return '<div class="row" style="margin:4px 0;"><span class="muted">'+n.created_at+' by '+(n.created_by||"?")+':</span> '+(n.courier?"Courier: "+n.courier+" ":"")+(n.tracking_id?"Tracking: "+n.tracking_id+" ":"")+(n.note||"")+'</div>';}).join("");
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9998;display:flex;align-items:center;justify-content:center;";
+    overlay.innerHTML = '<div class="card" style="max-width:420px;width:92%;max-height:85vh;overflow:auto;">'+
+      '<h4 style="margin-top:0;">Tracking for '+id+'</h4>'+
+      '<p><b>Original:</b> '+(info.original.courier||"-")+' / '+(info.original.tracking_id||"no tracking yet")+'</p>'+
+      (noteRows?'<p><b>Notes:</b></p>'+noteRows:'<p class="muted">No additional notes yet.</p>')+
+      '<label>'+(info.original.courier||info.original.tracking_id?"Add a note (courier/tracking changed?)":"Set courier / tracking")+'</label>'+
+      '<input id="tracking-note-courier" placeholder="Courier">'+
+      '<input id="tracking-note-id" placeholder="Tracking ID" style="margin-top:6px;">'+
+      '<input id="tracking-note-text" placeholder="Note (optional)" style="margin-top:6px;">'+
+      '<button class="secondary" onclick="submitTrackingNote(\''+id+'\')">Save</button>'+
+      '<button class="secondary btn-sm" onclick="this.closest(\'div[style*=fixed]\').remove()" style="margin-top:6px;">Close</button></div>';
+    document.body.appendChild(overlay);
+  }catch(e){showError(e.message);}
+}
+async function submitTrackingNote(id){
+  try{
+    const courier = document.getElementById("tracking-note-courier").value.trim();
+    const tracking_id = document.getElementById("tracking-note-id").value.trim();
+    const note = document.getElementById("tracking-note-text").value.trim();
+    await apiFetch("/dispatches/"+id+"/tracking",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({courier:courier||null,tracking_id:tracking_id||null,note:note||null})});
+    document.querySelectorAll('div[style*="fixed"]').forEach(function(el){ if(el.style.zIndex==="9998") el.remove(); });
+    loadDispatchHistory();
+  }catch(e){showError(e.message);}
 }
 
 // ---------------- Receive ----------------
@@ -1042,10 +1360,11 @@ async function loadReceiveQueue(){
   try{
     let list = await apiFetch("/dispatches");
     list = list.filter(function(d){return d.status==="shipped";});
-    if(!list.length){document.getElementById("receive-queue").innerHTML="Nothing awaiting confirmation.";return;}
-    const rows = list.map(function(d){return '<tr><td>'+d.id+'</td><td>'+d.dispatch_type+'</td><td>'+(d.to_site_name||"-")+'</td>'+
-      '<td><button class="secondary btn-sm" onclick="openReceiveConfirm(\''+d.id+'\')">Confirm receipt</button></td></tr>';});
-    document.getElementById("receive-queue").innerHTML = '<table><tr><th>Dispatch</th><th>Type</th><th>To</th><th></th></tr>'+rows.join("")+'</table><div id="receive-confirm-area"></div>';
+    const html = renderCardList(list, {
+      icon: function(){return "📥";}, title: function(d){return d.id+' · '+d.dispatch_type;}, sub: function(d){return (d.item_summary||"-")+' → '+(d.to_site_name||"-");},
+      action: function(d){return '<button class="secondary btn-sm" onclick="openReceiveConfirm(\''+d.id+'\')">Confirm</button>';}, empty: "Nothing awaiting confirmation.",
+    });
+    document.getElementById("receive-queue").innerHTML = html+'<div id="receive-confirm-area"></div>';
   }catch(e){document.getElementById("receive-queue").textContent=e.message;}
 }
 async function openReceiveConfirm(dispatchId){
@@ -1094,11 +1413,13 @@ async function confirmMaterialReturn(issueId){
 async function loadReceiveHistory(){
   try{
     const h=await apiFetch("/receive-history");
-    const workerRows=h.received_from_workers.map(function(r){return '<tr><td>'+r.work_order_id+'</td><td>'+r.work_order_description+'</td><td>'+r.worker_site_name+'</td></tr>';}).join("");
-    const poRows=h.received_from_purchase_orders.map(function(r){return '<tr><td>'+r.id+'</td><td>'+r.item_name+'</td><td>'+r.supplier_name+'</td></tr>';}).join("");
-    document.getElementById("receive-history").innerHTML=
-      '<h4>From workers</h4>'+(h.received_from_workers.length?'<table><tr><th>WO</th><th>Desc</th><th>Worker</th></tr>'+workerRows+'</table>':'<p class="muted">None yet.</p>')+
-      '<h4>From suppliers</h4>'+(h.received_from_purchase_orders.length?'<table><tr><th>PO</th><th>Item</th><th>Supplier</th></tr>'+poRows+'</table>':'<p class="muted">None yet.</p>');
+    const workerHtml = renderCardList(h.received_from_workers, {
+      icon: function(){return "🧵";}, title: function(r){return r.work_order_description;}, sub: function(r){return r.work_order_id+' · '+r.worker_site_name;}, empty: "None yet.",
+    });
+    const poHtml = renderCardList(h.received_from_purchase_orders, {
+      icon: function(){return "📦";}, title: function(r){return r.item_name;}, sub: function(r){return r.id+' · '+r.supplier_name;}, empty: "None yet.",
+    });
+    document.getElementById("receive-history").innerHTML= '<h4>From workers</h4>'+workerHtml+ '<h4>From suppliers</h4>'+poHtml;
   }catch(e){document.getElementById("receive-history").textContent=e.message;}
 }
 
@@ -1143,8 +1464,10 @@ async function createCO(){
 async function loadCOs(){
   try{
     const list=await apiFetch("/customer-orders");
-    const rows=list.map(function(o){return '<tr><td>'+o.id+'</td><td>'+o.customer_name+'</td><td>'+o.items.length+' line(s)</td><td>'+o.status+'</td><td><button class="secondary btn-sm" onclick="viewCO(\''+o.id+'\')">View</button></td></tr>';}).join("");
-    document.getElementById("co-list").innerHTML=list.length?'<table><tr><th>Order</th><th>Customer</th><th>Lines</th><th>Status</th><th></th></tr>'+rows+'</table>':"No customer orders yet.";
+    document.getElementById("co-list").innerHTML = renderCardList(list, {
+      icon: function(){return "🛍️";}, title: function(o){return o.customer_name;}, sub: function(o){return o.id+' · '+o.items.length+' line(s) · '+o.status;},
+      onClick: function(o){return "viewCO('"+o.id+"')";}, empty: "No customer orders yet.",
+    });
   }catch(e){document.getElementById("co-list").textContent=e.message;}
 }
 async function viewCO(id){
@@ -1153,16 +1476,19 @@ async function viewCO(id){
     let html='<div class="card"><div class="code-big">'+o.id+'</div><p>'+o.customer_name+'</p><p>Status: <span class="stage-badge">'+o.status+'</span></p>';
     const itemRows = o.items.map(function(line){
       let cell = '<tr><td>'+(line.item_name||line.description)+'</td><td>'+line.quantity+'</td><td>'+(line.current_stock!==null?line.current_stock:"-")+'</td>';
+      if(line.linked_work_order){
+        cell += '<td>'+line.linked_work_order.id+' ('+line.linked_work_order.stage+')</td>';
+      } else if(!["billed","shipped","cancelled"].includes(o.status)){
+        cell += "<td><button class='secondary btn-sm' onclick=\"switchTab('workorders');prefillWOFromOrder('"+o.id+"','"+(line.item_id||"")+"','"+line.quantity+"','"+line.id+"')\">Create WO</button></td>";
+      } else {
+        cell += '<td>-</td>';
+      }
       if(line.open_work_orders_for_item && line.open_work_orders_for_item.length) cell += '<td>'+line.open_work_orders_for_item.map(function(w){return w.id;}).join(", ")+'</td>'; else cell += '<td>-</td>';
       if(!["billed","shipped","cancelled"].includes(o.status)) cell += '<td><input id="co-price-'+line.id+'" type="number" step="0.01" placeholder="Price" style="width:90px;"></td>';
       cell += '</tr>';
       return cell;
     }).join("");
-    html += '<table><tr><th>Item</th><th>Qty</th><th>Stock</th><th>Open WOs</th>'+(!["billed","shipped","cancelled"].includes(o.status)?'<th>Price</th>':'')+'</tr>'+itemRows+'</table>';
-    if(!o.linked_work_order_id && !["billed","shipped","cancelled"].includes(o.status)){
-      html += '<p class="muted">To start production for a specific line, go to Work Orders and use its backlog.</p>';
-    }
-    if(o.work_order) html+='<p>Linked WO: '+o.work_order.id+' ('+o.work_order.stage+')</p>';
+    html += '<table><tr><th>Item</th><th>Qty</th><th>Stock</th><th>Work Order</th><th>Open WOs</th>'+(!["billed","shipped","cancelled"].includes(o.status)?'<th>Price</th>':'')+'</tr>'+itemRows+'</table>';
     if(o.sale) html+='<p>Sale: '+o.sale.id+' — Rs '+o.sale.total_amount+'</p>';
     if(!["billed","shipped","cancelled"].includes(o.status)){
       html += '<button class="secondary" onclick="billCO(\''+o.id+'\')">Bill all lines</button><div id="co-bill-msg"></div>';
@@ -1249,8 +1575,12 @@ async function createSale(){
   }catch(e){showError(e.message);}
 }
 async function loadSales(){
-  try{ const list=await apiFetch("/sales"); const rows=list.slice(0,20).map(function(s){return '<tr><td>'+s.id+'</td><td>'+(s.lines?s.lines.length:0)+' line(s)</td><td>Rs '+s.total_amount+'</td></tr>';}).join("");
-    document.getElementById("sales-list").innerHTML=list.length?'<table><tr><th>Code</th><th>Desc</th><th>Total</th></tr>'+rows+'</table>':"None yet."; }catch(e){document.getElementById("sales-list").textContent=e.message;}
+  try{ const list=await apiFetch("/sales");
+    document.getElementById("sales-list").innerHTML = renderCardList(list.slice(0,20), {
+      icon: function(){return "💰";}, title: function(s){return s.id;}, sub: function(s){return (s.lines?s.lines.length:0)+' line(s)';},
+      amount: function(s){return "Rs "+s.total_amount;}, empty: "None yet.",
+    });
+  }catch(e){document.getElementById("sales-list").textContent=e.message;}
 }
 async function loadSalesForRefund(){
   try{ const list=await apiFetch("/sales"); document.getElementById("ref-sale-select").innerHTML = list.map(function(s){return '<option value="'+s.id+'">'+s.id+' - '+s.description+' (Rs '+s.total_amount+')</option>';}).join(""); }catch(e){}
@@ -1318,8 +1648,12 @@ async function createSupplierBill(){
   }catch(e){showError(e.message);}
 }
 async function loadSupplierBills(){
-  try{ const list=await apiFetch("/supplier-bills"); const rows=list.slice(0,20).map(function(b){return '<tr><td>'+b.id+'</td><td>'+b.supplier_name+'</td><td>Rs '+b.amount+'</td></tr>';}).join("");
-    document.getElementById("sb-list").innerHTML=list.length?'<table><tr><th>Code</th><th>Supplier</th><th>Amount</th></tr>'+rows+'</table>':"None yet."; }catch(e){document.getElementById("sb-list").textContent=e.message;}
+  try{ const list=await apiFetch("/supplier-bills");
+    document.getElementById("sb-list").innerHTML = renderCardList(list.slice(0,20), {
+      icon: function(){return "🧾";}, title: function(b){return b.supplier_name;}, sub: function(b){return b.id;},
+      amount: function(b){return "Rs "+b.amount;}, empty: "None yet.",
+    });
+  }catch(e){document.getElementById("sb-list").textContent=e.message;}
 }
 
 // ---------------- Expenses ----------------
@@ -1331,8 +1665,12 @@ async function createExpense(){
     loadExpenses(); }catch(e){showError(e.message);}
 }
 async function loadExpenses(){
-  try{ const list=await apiFetch("/expenses"); const rows=list.slice(0,20).map(function(x){return '<tr><td>'+x.id+'</td><td>'+x.description+'</td><td>'+(x.category_name||"")+'</td><td>Rs '+x.amount+'</td></tr>';}).join("");
-    document.getElementById("expenses-list").innerHTML=list.length?'<table><tr><th>Code</th><th>Desc</th><th>Category</th><th>Amount</th></tr>'+rows+'</table>':"None yet."; }catch(e){document.getElementById("expenses-list").textContent=e.message;}
+  try{ const list=await apiFetch("/expenses");
+    document.getElementById("expenses-list").innerHTML = renderCardList(list.slice(0,20), {
+      icon: function(){return "🧮";}, title: function(x){return x.description;}, sub: function(x){return x.category_name||"";},
+      amount: function(x){return "Rs "+x.amount;}, empty: "None yet.",
+    });
+  }catch(e){document.getElementById("expenses-list").textContent=e.message;}
 }
 
 // ---------------- Payments Receivable / Payable / Worker ----------------
@@ -1344,8 +1682,10 @@ async function loadOutstandingFor(direction){
   try{
     const res = await apiFetch("/outstanding-bills?party_id="+partyId+"&direction="+direction);
     if(!res.bills.length){document.getElementById(areaId).innerHTML="<p class='muted'>Nothing outstanding.</p>";return;}
-    const rows = res.bills.map(function(b){return '<tr><td>'+b.bill_id+'</td><td>'+b.description+'</td><td>Rs '+b.outstanding+'</td><td><input type="number" step="0.01" class="bill-alloc" data-bill-type="'+b.bill_type+'" data-bill-id="'+b.bill_id+'" style="width:90px;"></td></tr>';}).join("");
-    document.getElementById(areaId).innerHTML = '<table><tr><th>Bill</th><th>Desc</th><th>Outstanding</th><th>Apply</th></tr>'+rows+'</table>';
+    const rows = res.bills.map(function(b){return '<div class="list-card"><div class="lc-icon">🧾</div>'+
+      '<div class="lc-body"><p class="lc-title">'+b.description+'</p><p class="lc-sub">'+b.bill_id+' · outstanding Rs '+b.outstanding+'</p></div>'+
+      '<div class="lc-right"><input type="number" step="0.01" class="bill-alloc" data-bill-type="'+b.bill_type+'" data-bill-id="'+b.bill_id+'" placeholder="Apply" style="width:80px;"></div></div>';}).join("");
+    document.getElementById(areaId).innerHTML = '<div class="card-list">'+rows+'</div>';
   }catch(e){showError(e.message);}
 }
 async function submitPayment(direction){
@@ -1426,8 +1766,12 @@ async function createParty(){
   }catch(e){showError(e.message);}
 }
 async function loadParties(){
-  try{ const list=await apiFetch("/parties"); const rows=list.map(function(p){return '<tr><td>'+p.name+'</td><td>'+p.type+'</td><td>Rs '+p.balance+'</td></tr>';}).join("");
-    document.getElementById("parties-list").innerHTML=list.length?'<table><tr><th>Name</th><th>Type</th><th>Balance</th></tr>'+rows+'</table>':"None yet."; }catch(e){document.getElementById("parties-list").textContent=e.message;}
+  try{ const list=await apiFetch("/parties");
+    document.getElementById("parties-list").innerHTML = renderCardList(list, {
+      icon: function(p){return p.type==="worker"?"🧵":(p.type==="supplier"?"🏭":"🧑");}, title: function(p){return p.name;}, sub: function(p){return p.type;},
+      amount: function(p){return "Rs "+p.balance;}, empty: "None yet.",
+    });
+  }catch(e){document.getElementById("parties-list").textContent=e.message;}
 }
 
 // ---------------- Users ----------------
@@ -1446,8 +1790,12 @@ async function createUser(){
   }catch(e){showError(e.message);}
 }
 async function loadUsers(){
-  try{ const list=await apiFetch("/users"); const rows=list.map(function(u){return '<tr><td>'+u.name+' (@'+u.username+')</td><td>'+u.role+'</td><td>'+(u.active?"Active":"Disabled")+'</td></tr>';}).join("");
-    document.getElementById("users-list").innerHTML=list.length?'<table><tr><th>Name</th><th>Role</th><th>Status</th></tr>'+rows+'</table>':"None yet."; }catch(e){document.getElementById("users-list").textContent=e.message;}
+  try{ const list=await apiFetch("/users");
+    document.getElementById("users-list").innerHTML = renderCardList(list, {
+      icon: function(){return "👤";}, title: function(u){return u.name+' (@'+u.username+')';}, sub: function(u){return u.role;},
+      amount: function(u){return u.active?"Active":"Disabled";}, empty: "None yet.",
+    });
+  }catch(e){document.getElementById("users-list").textContent=e.message;}
 }
 
 if(getSession()) boot();

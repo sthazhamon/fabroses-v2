@@ -22,6 +22,8 @@ export async function onRequestPost({ request, env }) {
     if (worker_user_id) {
       const user = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(worker_user_id).first();
       if (!user) return Response.json({ error: "worker_user_id does not match an existing user" }, { status: 404 });
+      const existingLink = await env.DB.prepare("SELECT id FROM sites WHERE worker_user_id = ?").bind(worker_user_id).first();
+      if (existingLink) return Response.json({ error: "That user is already linked to a different site" }, { status: 400 });
     }
     const { siteId, partyId } = await createWorkerSite(env, { name, worker_user_id });
     if (address || notes) await env.DB.prepare("UPDATE sites SET address = ?, notes = ? WHERE id = ?").bind(address || null, notes || null, siteId).run();

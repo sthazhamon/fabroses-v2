@@ -17,16 +17,15 @@ export async function onRequestGet({ params, env }) {
       ).bind(line.item_id).all();
       openWorkOrders = results;
     }
-    items.push({ ...line, current_stock: currentStock, open_work_orders_for_item: openWorkOrders });
-  }
-
-  let workOrder = null;
-  if (order.linked_work_order_id) {
-    workOrder = await env.DB.prepare("SELECT * FROM work_orders WHERE id = ?").bind(order.linked_work_order_id).first();
-    if (workOrder) {
-      const { results: stages } = await env.DB.prepare("SELECT * FROM stage_log WHERE work_order_id = ? ORDER BY changed_at ASC").bind(order.linked_work_order_id).all();
-      workOrder = { ...workOrder, stages };
+    let linkedWorkOrder = null;
+    if (line.linked_work_order_id) {
+      linkedWorkOrder = await env.DB.prepare("SELECT * FROM work_orders WHERE id = ?").bind(line.linked_work_order_id).first();
+      if (linkedWorkOrder) {
+        const { results: stages } = await env.DB.prepare("SELECT * FROM stage_log WHERE work_order_id = ? ORDER BY changed_at ASC").bind(line.linked_work_order_id).all();
+        linkedWorkOrder = { ...linkedWorkOrder, stages };
+      }
     }
+    items.push({ ...line, current_stock: currentStock, open_work_orders_for_item: openWorkOrders, linked_work_order: linkedWorkOrder });
   }
 
   let sale = null;
@@ -38,7 +37,7 @@ export async function onRequestGet({ params, env }) {
     }
   }
 
-  return Response.json({ ...order, items, work_order: workOrder, sale });
+  return Response.json({ ...order, items, sale });
 }
 
 export async function onRequestPatch({ request, env, params }) {

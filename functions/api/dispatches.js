@@ -6,6 +6,14 @@ export async function onRequestGet({ env }) {
      FROM dispatches d LEFT JOIN sites fs ON fs.id = d.from_site_id LEFT JOIN sites ts ON ts.id = d.to_site_id
      ORDER BY d.created_at DESC`
   ).all();
+
+  for (const dispatch of results) {
+    const { results: items } = await env.DB.prepare(
+      "SELECT di.expected_quantity, di.scanned_quantity, i.name AS item_name FROM dispatch_items di LEFT JOIN items i ON i.id = di.item_id WHERE di.dispatch_id = ?"
+    ).bind(dispatch.id).all();
+    dispatch.item_summary = items.map((i) => `${i.item_name || "?"} (${i.scanned_quantity ?? i.expected_quantity})`).join(", ");
+  }
+
   return Response.json(results);
 }
 

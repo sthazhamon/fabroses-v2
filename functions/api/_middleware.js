@@ -17,6 +17,7 @@ const RULES = [
   { prefix: "/api/journal-entries", roles: ["admin", "accountant"] },
   { prefix: "/api/accounts", roles: ["admin", "accountant"] },
   { prefix: "/api/material-issues", roles: ["admin", "accountant", "dispatch", "worker"] },
+  { prefix: "/api/rework-issues", roles: ["admin", "accountant", "dispatch", "worker"] },
   { prefix: "/api/parties", roles: ["admin", "accountant"] },
   { prefix: "/api/sales", roles: ["admin", "accountant", "dispatch"] },
   { prefix: "/api/dispatches", roles: ["admin", "accountant", "dispatch", "worker"] },
@@ -67,5 +68,7 @@ export async function onRequest(context) {
   }
 
   data.user = payload;
-  return next();
+  const response = await next();
+  response.headers.set("Cache-Control", "no-store");
+  return response;
 }

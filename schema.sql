@@ -120,6 +120,16 @@ CREATE INDEX idx_items_type ON items(item_type);
 
 CREATE TABLE item_photos (id INTEGER PRIMARY KEY AUTOINCREMENT, item_id TEXT NOT NULL REFERENCES items(id), r2_key TEXT NOT NULL, uploaded_at TEXT DEFAULT (datetime('now')));
 
+-- Bill of Materials: which raw materials, and how much of each, a finished
+-- good is made from. Multiple rows per finished item.
+CREATE TABLE item_bom (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  finished_item_id TEXT NOT NULL REFERENCES items(id),
+  raw_material_item_id TEXT NOT NULL REFERENCES items(id),
+  quantity_required REAL NOT NULL
+);
+CREATE INDEX idx_bom_finished ON item_bom(finished_item_id);
+
 CREATE TABLE item_lots (
   id TEXT PRIMARY KEY,
   item_id TEXT NOT NULL REFERENCES items(id),
@@ -184,6 +194,16 @@ CREATE TABLE dispatch_items (
   mismatch_flag INTEGER DEFAULT 0
 );
 
+CREATE TABLE dispatch_tracking_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dispatch_id TEXT NOT NULL REFERENCES dispatches(id),
+  courier TEXT,
+  tracking_id TEXT,
+  note TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- ============================================================
 -- WORK ORDERS — worker mandatory at creation. No auto-attach.
 -- ============================================================
@@ -194,7 +214,9 @@ CREATE TABLE work_orders (
   work_instructions TEXT,
   sketch_r2_key TEXT,
   worker_site_id TEXT NOT NULL REFERENCES sites(id),
+  job_type TEXT DEFAULT 'production',
   intended_item_id TEXT REFERENCES items(id),
+  rework_lot_id TEXT REFERENCES item_lots(id),
   output_item_id TEXT REFERENCES items(id),
   target_quantity REAL DEFAULT 1,
   received_quantity_total REAL DEFAULT 0,
@@ -205,6 +227,7 @@ CREATE TABLE work_orders (
   related_customer_order_id TEXT,
   order_date TEXT,
   closed_at TEXT,
+  cancelled_at TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -236,6 +259,34 @@ CREATE TABLE material_return_events (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- A finished-good lot sent out for rework — mirrors material_issues, but
+-- for a specific already-made piece rather than raw material. A lot can
+-- go through this more than once if it needs correcting again.
+CREATE TABLE rework_issues (
+  id TEXT PRIMARY KEY,
+  work_order_id TEXT NOT NULL REFERENCES work_orders(id),
+  lot_id TEXT NOT NULL REFERENCES item_lots(id),
+  quantity_issued REAL NOT NULL,
+  quantity_returned REAL DEFAULT 0,
+  quantity_wasted REAL DEFAULT 0,
+  worker_site_id TEXT REFERENCES sites(id),
+  status TEXT DEFAULT 'with_worker',
+  issued_at TEXT DEFAULT (datetime('now')),
+  received_at TEXT,
+  notes TEXT
+);
+
+CREATE TABLE rework_return_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rework_issue_id TEXT NOT NULL REFERENCES rework_issues(id),
+  quantity_returned REAL DEFAULT 0,
+  quantity_wasted REAL DEFAULT 0,
+  destination_site_id TEXT REFERENCES sites(id),
+  notes TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE photos (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, stage TEXT, r2_key TEXT NOT NULL, uploaded_at TEXT DEFAULT (datetime('now')));
 
 -- ============================================================
@@ -250,7 +301,6 @@ CREATE TABLE customer_orders (
   order_date TEXT,
   promised_delivery_date TEXT,
   status TEXT DEFAULT 'received',
-  linked_work_order_id TEXT REFERENCES work_orders(id),
   sale_id TEXT,
   courier TEXT,
   tracking_id TEXT,
@@ -266,7 +316,8 @@ CREATE TABLE customer_order_items (
   item_id TEXT REFERENCES items(id),
   description TEXT,
   quantity REAL DEFAULT 1,
-  tax_rate REAL DEFAULT 0
+  tax_rate REAL DEFAULT 0,
+  linked_work_order_id TEXT REFERENCES work_orders(id)
 );
 
 CREATE TABLE purchase_orders (

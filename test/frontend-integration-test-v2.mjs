@@ -75,7 +75,7 @@ async function run() {
     const noWorkerRes = await fetch(BASE + "/work-orders", postJSON({ description: "Test", work_instructions: "", worker_site_id: "", intended_item_id: null, target_quantity: 1, priority: "normal", due_date: null })).then((r) => r.json());
     assert(noWorkerRes.error, "creating a WO with an empty worker_site_id is rejected, matching the mandatory-worker redesign");
 
-    const wo = await apiFetch("/work-orders", postJSON({ description: "Embroidery job", work_instructions: "", worker_site_id: workerRes.id, intended_item_id: null, target_quantity: 2, priority: "normal", due_date: null, related_customer_order_id: null }));
+    const wo = await apiFetch("/work-orders", postJSON({ description: "Embroidery job", work_instructions: "", worker_site_id: workerRes.id, intended_item_id: finishedItem.id, target_quantity: 2, priority: "normal", due_date: null, related_customer_order_id: null }));
     assert(wo.id, "createWO() with a real worker succeeds");
 
     section("=== Issue material -> pick -> ship -> confirm receive (full two-step, via frontend actions) ===");
@@ -174,6 +174,49 @@ async function run() {
     section("=== Item edit (the previously-missing edit form) ===");
     const editRes = await apiFetch("/items/" + finishedItem.id, patchJSON({ name: "Test Saree", color: "Red", price: 5500, cost: null, description: "" }));
     assert(editRes.ok, "saveItemEdit()'s exact field set accepted — this is the fix for the original missing-edit-option problem");
+
+    section("=== BOM save (saveBom()'s exact shape) and preview (refreshBomPreview()'s exact call) ===");
+    const rawItem2 = await apiFetch("/items", postJSON({ item_type: "raw_material", name: "Thread", category_id: null, fabric_id: null, work_type_id: null, pattern_id: null, unit_of_measure: "metre", color: "", price: null, cost: null, description: "" }));
+    const bomSaveRes = await apiFetch("/items/" + finishedItem.id + "/bom", postJSON({ lines: [{ raw_material_item_id: rawItem.id, quantity_required: 5 }, { raw_material_item_id: rawItem2.id, quantity_required: 2 }] }));
+    assert(bomSaveRes.ok, "saveBom()'s exact field shape accepted");
+
+    const bomListRes = await apiFetch("/items/" + finishedItem.id + "/bom");
+    assert(bomListRes.length === 2, "loadBomEditor()'s expected GET shape returns both lines");
+
+    const previewRes = await apiFetch("/work-orders/bom-preview?intended_item_id=" + finishedItem.id + "&worker_site_id=" + workerRes.id + "&target_quantity=1");
+    assert(previewRes.lines.length === 2, "refreshBomPreview()'s exact query params work, returning both suggested lines");
+
+    section("=== Work order creation with the new mandatory/job_type/material_lines shape ===");
+    const woWithBom = await apiFetch("/work-orders", postJSON({
+      description: "Job with BOM", work_instructions: "", worker_site_id: workerRes.id, intended_item_id: finishedItem.id, job_type: "production",
+      target_quantity: 1, priority: "normal", due_date: null, related_customer_order_id: null,
+      material_lines: previewRes.lines.map((l) => ({ raw_material_item_id: l.raw_material_item_id, quantity: l.suggested_quantity })),
+    }));
+    assert(woWithBom.id && Array.isArray(woWithBom.bom_results), "createWO()'s exact shape (including material_lines override) accepted, bom_results returned for the summary message");
+
+    section("=== Rework: issue, then return, using the exact frontend shapes ===");
+    const reworkLot = await apiFetch("/item-lots", postJSON({ item_id: finishedItem.id, site_id: store.id, quantity: 1, source_type: "work_order_output" }));
+    const reworkWO = await apiFetch("/work-orders", postJSON({
+      description: "Fix it", work_instructions: "", worker_site_id: workerRes.id, intended_item_id: finishedItem.id, job_type: "rework", rework_lot_id: reworkLot.id,
+      target_quantity: 1, priority: "normal", due_date: null,
+    }));
+    assert(reworkWO.id, "createWO()'s rework shape (job_type + rework_lot_id) accepted");
+
+    const reworkIssueRes = await apiFetch("/work-orders/" + reworkWO.id + "/issue-rework", postJSON({}));
+    assert(reworkIssueRes.dispatch_id, "issueRework()'s exact call (empty body, WO already knows its own lot) works");
+
+    const reworkDispatchDetail = await apiFetch("/dispatches/" + reworkIssueRes.dispatch_id);
+    const reworkDispItem = reworkDispatchDetail.items[0];
+    await apiFetch("/dispatches/" + reworkIssueRes.dispatch_id + "/scan", postJSON({ item_id: reworkDispItem.item_id, lot_id: reworkDispItem.lot_id, scanned_quantity: 1 }));
+    await apiFetch("/dispatches/" + reworkIssueRes.dispatch_id + "/ship", postJSON({ courier: "", tracking_id: "" }));
+    const reworkShippedItem = await apiFetch("/dispatches/" + reworkIssueRes.dispatch_id).then((d) => d.items[0]);
+    await apiFetch("/dispatches/" + reworkIssueRes.dispatch_id + "/receive", postJSON({ confirmations: [{ dispatch_item_id: reworkShippedItem.id, received_quantity: 1 }] }));
+
+    const woDetailAfterRework = await apiFetch("/work-orders/" + reworkWO.id);
+    assert(woDetailAfterRework.rework_issues.length === 1, "viewWO()'s expected rework_issues field is present after confirm-receive");
+
+    const reworkReturnRes = await apiFetch("/rework-issues/" + woDetailAfterRework.rework_issues[0].id + "/return", postJSON({ quantity_returned: 1, quantity_wasted: 0 }));
+    assert(reworkReturnRes.ok && reworkReturnRes.fully_reconciled, "confirmReworkReturn()'s exact shape accepted and closes the cycle");
 
   } finally {
     server.close();

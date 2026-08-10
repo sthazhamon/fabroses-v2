@@ -13,8 +13,12 @@ export async function onRequestPost({ request, env, params }) {
   const order = await env.DB.prepare("SELECT * FROM work_orders WHERE id = ?").bind(params.id).first();
   if (!order) return Response.json({ error: "Work order not found" }, { status: 404 });
   if (order.closed_at) return Response.json({ error: "This work order is already closed" }, { status: 400 });
+  if (order.stage === "Work Shipped") return Response.json({ error: "This job has already been shipped back — nothing left to ship again" }, { status: 400 });
 
-  let finalItemId = output_item_id || null;
+  // The finished item is generally already known from the work order itself
+  // (its intended item) — no need to ask the worker to identify it again,
+  // unless this WO genuinely has no intended item set.
+  let finalItemId = output_item_id || order.intended_item_id || null;
   if (!finalItemId && new_item_name) {
     finalItemId = await nextItemId(env);
     await env.DB.prepare("INSERT INTO items (id, item_type, name, description) VALUES (?, 'finished_good', ?, ?)")

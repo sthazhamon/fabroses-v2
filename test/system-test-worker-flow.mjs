@@ -103,6 +103,15 @@ async function run() {
   const woDetail = await (await woDetailMod.onRequestGet({ params: { id: wo.id }, env })).json();
   assert(woDetail.photos.length === 1, "the uploaded WIP photo now actually shows up on the work order's detail — the read path finally has something to read");
 
+  section("=== Can't ship back a second time once already Work Shipped ===");
+  const duplicateAttempt = await (await shipBackMod.onRequestPost({ request: req({ output_item_id: finishedItem.id, quantity: 1 }), env, params: { id: wo.id } })).json();
+  assert(duplicateAttempt.error, "a second ship-back attempt on the same WO, after it's already Work Shipped, is rejected — not silently creating a duplicate dispatch");
+
+  section("=== Ship-back auto-defaults to the WO's intended item, no scan/entry needed ===");
+  const wo2 = await (await woMod.onRequestPost({ request: req({ description: "Job 2", worker_site_id: worker.id, intended_item_id: finishedItem.id, target_quantity: 1 }), env })).json();
+  const autoDefaultRes = await (await shipBackMod.onRequestPost({ request: req({ quantity: 1 }), env, params: { id: wo2.id } })).json();
+  assert(autoDefaultRes.item_id === finishedItem.id && autoDefaultRes.mismatch === false, `leaving output_item_id blank correctly defaults to the WO's own intended item, no mismatch (got item_id=${autoDefaultRes.item_id})`);
+
   console.log(`\n${passed} passed, ${failed} failed\n`);
   if (failed > 0) process.exit(1);
 }

@@ -21,10 +21,11 @@ async function run() {
   const workerA = await (await sitesMod.onRequestPost({ request: req({ name: "Zakir", site_type: "worker" }), env })).json();
   const workerB = await (await sitesMod.onRequestPost({ request: req({ name: "Mortaja", site_type: "worker" }), env })).json();
   const item = await (await itemsMod.onRequestPost({ request: req({ item_type: "raw_material", name: "Kota", unit_of_measure: "metre" }), env })).json();
+  const finishedItem = await (await itemsMod.onRequestPost({ request: req({ item_type: "finished_good", name: "Saree" }), env })).json();
   const lot = await (await lotsMod.onRequestPost({ request: req({ item_id: item.id, site_id: store.id, quantity: 30, source_type: "direct_intake", cost_total: 6000 }), env, data: {} })).json();
 
-  const woA = await (await woMod.onRequestPost({ request: req({ description: "Job A", worker_site_id: workerA.id, target_quantity: 1 }), env })).json();
-  const woB = await (await woMod.onRequestPost({ request: req({ description: "Job B", worker_site_id: workerB.id, target_quantity: 1 }), env })).json();
+  const woA = await (await woMod.onRequestPost({ request: req({ description: "Job A", worker_site_id: workerA.id, intended_item_id: finishedItem.id, target_quantity: 1 }), env })).json();
+  const woB = await (await woMod.onRequestPost({ request: req({ description: "Job B", worker_site_id: workerB.id, intended_item_id: finishedItem.id, target_quantity: 1 }), env })).json();
 
   section("=== The SAME lot split across two workers via issue-material + full dispatch flow ===");
   const issueMod = await import("../functions/api/work-orders/[id]/issue-material.js");

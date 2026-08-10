@@ -71,9 +71,11 @@ async function run() {
 
   section("=== Worker payments run through the exact same mechanism ===");
   const sitesMod = await import("../functions/api/sites.js");
+  const itemsModForWO = await import("../functions/api/items.js");
   const woMod = await import("../functions/api/work-orders.js");
   const site = await (await sitesMod.onRequestPost({ request: req({ name: "Zakir", site_type: "worker" }), env })).json();
-  const wo = await (await woMod.onRequestPost({ request: req({ description: "Job 1", worker_site_id: site.id, target_quantity: 1 }), env })).json();
+  const woItem = await (await itemsModForWO.onRequestPost({ request: req({ item_type: "finished_good", name: "Test Item" }), env })).json();
+  const wo = await (await woMod.onRequestPost({ request: req({ description: "Job 1", worker_site_id: site.id, intended_item_id: woItem.id, target_quantity: 1 }), env })).json();
   await env.DB.prepare("UPDATE work_orders SET closed_at = datetime('now'), labor_cost = 500 WHERE id = ?").bind(wo.id).run();
 
   const workerOutstanding = await (await outstandingMod.onRequestGet({ request: { url: `https://x/api/outstanding-bills?party_id=${site.worker_party_id}&direction=worker` }, env })).json();

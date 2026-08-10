@@ -103,9 +103,20 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
       ).bind(newReceivedTotal, item.item_id, laborCost, workOrderClosed ? new Date().toISOString() : null, dispatch.related_work_order_id).run();
 
       if (workOrderClosed) {
-        await env.DB.prepare(
-          "UPDATE customer_orders SET status = 'ready_to_bill', updated_at = datetime('now') WHERE linked_work_order_id = ? AND status = 'awaiting_material'"
-        ).bind(dispatch.related_work_order_id).run();
+        // Linkage now lives per LINE, not on the order header — find which
+        // line this WO was for, then only flip the order's overall status
+        // once every line is either done or never needed a WO in the first place.
+        const closedLine = await env.DB.prepare("SELECT * FROM customer_order_items WHERE linked_work_order_id = ?").bind(dispatch.related_work_order_id).first();
+        if (closedLine) {
+          const { results: siblingLines } = await env.DB.prepare("SELECT coi.*, w.closed_at AS wo_closed_at FROM customer_order_items coi LEFT JOIN work_orders w ON w.id = coi.linked_work_order_id WHERE coi.customer_order_id = ?")
+            .bind(closedLine.customer_order_id).all();
+          const allReady = siblingLines.every((l) => !l.linked_work_order_id || l.wo_closed_at);
+          const currentOrder = await env.DB.prepare("SELECT status FROM customer_orders WHERE id = ?").bind(closedLine.customer_order_id).first();
+          if (currentOrder && !["billed", "shipped", "cancelled"].includes(currentOrder.status)) {
+            await env.DB.prepare("UPDATE customer_orders SET status = ?, updated_at = datetime('now') WHERE id = ?")
+              .bind(allReady ? "ready_to_bill" : "partially_fulfilled", closedLine.customer_order_id).run();
+          }
+        }
       }
       continue;
     }
@@ -121,10 +132,19 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
     ).bind(newLotId, item.item_id, dispatch.to_site_id, conf.received_quantity, dispatch.related_work_order_id, dispatchId, `Confirmed received (${dispatchId})`, actorName || "system").run();
 
     if (dispatch.dispatch_type === "stock_transfer" && dispatch.related_work_order_id) {
-      const issueId = await nextId(env, "material_issues", "ISS");
-      await env.DB.prepare(
-        "INSERT INTO material_issues (id, work_order_id, lot_id, quantity_issued, worker_site_id, status) VALUES (?, ?, ?, ?, ?, 'with_worker')"
-      ).bind(issueId, dispatch.related_work_order_id, item.lot_id, conf.received_quantity, dispatch.to_site_id).run();
+      const order = await env.DB.prepare("SELECT job_type FROM work_orders WHERE id = ?").bind(dispatch.related_work_order_id).first();
+
+      if (order?.job_type === "rework") {
+        const reworkIssueId = await nextId(env, "rework_issues", "RWK");
+        await env.DB.prepare(
+          "INSERT INTO rework_issues (id, work_order_id, lot_id, quantity_issued, worker_site_id, status) VALUES (?, ?, ?, ?, ?, 'with_worker')"
+        ).bind(reworkIssueId, dispatch.related_work_order_id, item.lot_id, conf.received_quantity, dispatch.to_site_id).run();
+      } else {
+        const issueId = await nextId(env, "material_issues", "ISS");
+        await env.DB.prepare(
+          "INSERT INTO material_issues (id, work_order_id, lot_id, quantity_issued, worker_site_id, status) VALUES (?, ?, ?, ?, ?, 'with_worker')"
+        ).bind(issueId, dispatch.related_work_order_id, item.lot_id, conf.received_quantity, dispatch.to_site_id).run();
+      }
 
       await env.DB.prepare("UPDATE work_orders SET stage = 'Material Received', updated_at = datetime('now') WHERE id = ?").bind(dispatch.related_work_order_id).run();
       await env.DB.prepare("INSERT INTO stage_log (work_order_id, stage, changed_by) VALUES (?, 'Material Received', ?)").bind(dispatch.related_work_order_id, actorName || "system").run();

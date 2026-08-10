@@ -18,12 +18,9 @@ export async function onRequestPatch({ request, env, params }) {
   const dispatch = await env.DB.prepare("SELECT * FROM dispatches WHERE id = ?").bind(params.id).first();
   if (!dispatch) return Response.json({ error: "Dispatch not found" }, { status: 404 });
 
-  const changes = {};
-  if (body.courier !== undefined) changes.courier = body.courier;
-  if (body.tracking_id !== undefined) changes.tracking_id = body.tracking_id;
-  if (!Object.keys(changes).length) return Response.json({ error: "Nothing to update" }, { status: 400 });
+  if (body.courier !== undefined || body.tracking_id !== undefined) {
+    return Response.json({ error: "Tracking info is added through /dispatches/:id/tracking now, not edited directly here — the original entry stays locked, corrections go in as notes." }, { status: 400 });
+  }
 
-  const setClauses = Object.keys(changes).map((f) => `${f} = ?`).join(", ");
-  await env.DB.prepare(`UPDATE dispatches SET ${setClauses} WHERE id = ?`).bind(...Object.values(changes), params.id).run();
-  return Response.json({ ok: true });
+  return Response.json({ error: "Nothing to update" }, { status: 400 });
 }

@@ -17,10 +17,15 @@ export async function onRequestGet({ params, env }) {
      LEFT JOIN item_lots l ON l.id = mi.lot_id LEFT JOIN items i ON i.id = l.item_id
      WHERE mi.work_order_id = ? ORDER BY mi.issued_at ASC`
   ).bind(params.id).all();
+  const { results: reworkIssues } = await env.DB.prepare(
+    `SELECT ri.*, l.item_id, i.name AS item_name FROM rework_issues ri
+     LEFT JOIN item_lots l ON l.id = ri.lot_id LEFT JOIN items i ON i.id = l.item_id
+     WHERE ri.work_order_id = ? ORDER BY ri.issued_at ASC`
+  ).bind(params.id).all();
   const { results: movements } = await env.DB.prepare("SELECT * FROM item_movements WHERE work_order_id = ? ORDER BY created_at ASC").bind(params.id).all();
   const { results: photos } = await env.DB.prepare("SELECT * FROM photos WHERE entity_type = 'work_order' AND entity_id = ? ORDER BY uploaded_at DESC").bind(params.id).all();
 
-  return Response.json({ ...order, stages, issues, movements, photos });
+  return Response.json({ ...order, stages, issues, rework_issues: reworkIssues, movements, photos });
 }
 
 export async function onRequestPatch({ request, env, params, data }) {
@@ -29,15 +34,10 @@ export async function onRequestPatch({ request, env, params, data }) {
   if (!existing) return Response.json({ error: "Work order not found" }, { status: 404 });
 
   if (body.worker_site_id !== undefined) {
-    if (body.worker_site_id === null) {
-      return Response.json({ error: "A work order must always have a worker assigned — reassign to someone else instead of clearing it" }, { status: 400 });
-    }
-    const site = await env.DB.prepare("SELECT * FROM sites WHERE id = ?").bind(body.worker_site_id).first();
-    if (!site) return Response.json({ error: "That site doesn't exist" }, { status: 404 });
-    if (site.site_type !== "worker") return Response.json({ error: "That site isn't a worker site" }, { status: 400 });
+    return Response.json({ error: "Reassigning a work order isn't supported — cancel it and create a fresh one for the new worker instead, so material custody always stays correctly tracked." }, { status: 400 });
   }
 
-  const editable = ["description", "work_instructions", "due_date", "priority", "target_quantity", "worker_site_id"];
+  const editable = ["description", "work_instructions", "due_date", "priority", "target_quantity"];
   const changes = {};
   for (const field of editable) if (body[field] !== undefined) changes[field] = body[field];
   if (!Object.keys(changes).length) return Response.json({ error: "Nothing to update" }, { status: 400 });
