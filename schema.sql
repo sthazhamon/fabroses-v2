@@ -255,6 +255,8 @@ CREATE TABLE material_return_events (
   quantity_returned_stock REAL DEFAULT 0,
   quantity_wasted REAL DEFAULT 0,
   destination_site_id TEXT REFERENCES sites(id),
+  created_lot_id TEXT REFERENCES item_lots(id),
+  corrected_at TEXT,
   notes TEXT,
   created_by TEXT,
   created_at TEXT DEFAULT (datetime('now'))
@@ -318,6 +320,7 @@ CREATE TABLE customer_order_items (
   item_id TEXT REFERENCES items(id),
   description TEXT,
   quantity REAL DEFAULT 1,
+  unit_price REAL,
   tax_rate REAL DEFAULT 0,
   linked_work_order_id TEXT REFERENCES work_orders(id)
 );
@@ -382,6 +385,7 @@ INSERT INTO accounts (code, name, account_type) VALUES
   ('1010', 'Bank', 'asset'),
   ('1100', 'Accounts Receivable', 'asset'),
   ('1200', 'Inventory — Raw Material', 'asset'),
+  ('1300', 'Tax Input Credit', 'asset'),
   ('1210', 'Inventory — Finished Goods', 'asset'),
   ('2000', 'Accounts Payable', 'liability'),
   ('2050', 'Wages Payable', 'liability'),
@@ -465,6 +469,8 @@ CREATE TABLE supplier_bill_items (
   item_id TEXT REFERENCES items(id),
   quantity REAL,
   rate REAL,
+  tax_rate REAL DEFAULT 0,
+  tax_amount REAL DEFAULT 0,
   line_total REAL NOT NULL
 );
 

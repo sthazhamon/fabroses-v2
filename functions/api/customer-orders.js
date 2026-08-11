@@ -39,8 +39,8 @@ export async function onRequestPost({ request, env }) {
       if (!found) return Response.json({ error: `Item ${item.item_id} not found` }, { status: 404 });
       effectiveDescription = found.name;
     }
-    await env.DB.prepare("INSERT INTO customer_order_items (customer_order_id, item_id, description, quantity, tax_rate) VALUES (?, ?, ?, ?, ?)")
-      .bind(id, item.item_id || null, effectiveDescription, item.quantity || 1, item.tax_rate || 0).run();
+    await env.DB.prepare("INSERT INTO customer_order_items (customer_order_id, item_id, description, quantity, unit_price, tax_rate) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(id, item.item_id || null, effectiveDescription, item.quantity || 1, item.unit_price != null ? item.unit_price : null, item.tax_rate || 0).run();
   }
 
   return Response.json({ id });

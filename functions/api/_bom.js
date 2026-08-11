@@ -69,10 +69,6 @@ export async function reconcileMaterialIssue(env, issueId, { quantity_returned_s
     }
   }
 
-  await env.DB.prepare(
-    "INSERT INTO material_return_events (material_issue_id, quantity_returned_stock, quantity_wasted, destination_site_id, notes, created_by) VALUES (?, ?, ?, ?, ?, ?)"
-  ).bind(issueId, returned, wasted, destination_site_id || null, notes || null, actorName || "unknown").run();
-
   let newLotId = null;
   if (returned > 0) {
     const site = destination_site_id || issue.worker_site_id;
@@ -86,6 +82,11 @@ export async function reconcileMaterialIssue(env, issueId, { quantity_returned_s
     ).bind(newLotId, refLot.item_id, site, returned, issue.work_order_id, `Material return on ${issueId}`, actorName || "system").run();
   }
 
+  const returnEventResult = await env.DB.prepare(
+    "INSERT INTO material_return_events (material_issue_id, quantity_returned_stock, quantity_wasted, destination_site_id, created_lot_id, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).bind(issueId, returned, wasted, destination_site_id || null, newLotId, notes || null, actorName || "unknown").run();
+  const returnEventId = returnEventResult.meta.last_row_id;
+
   const newReturnedTotal = issue.quantity_returned_stock + returned;
   const newWastedTotal = issue.quantity_wasted + wasted;
   const fullyReconciled = close_fully || newReturnedTotal + newWastedTotal >= issue.quantity_issued - 0.001;
@@ -95,7 +96,7 @@ export async function reconcileMaterialIssue(env, issueId, { quantity_returned_s
   ).bind(newReturnedTotal, newWastedTotal, fullyReconciled ? "received" : "partially_returned", fullyReconciled ? new Date().toISOString() : null, issueId).run();
 
   return {
-    ok: true, lot_id: newLotId, fully_reconciled: fullyReconciled,
+    ok: true, lot_id: newLotId, return_event_id: returnEventId, fully_reconciled: fullyReconciled,
     still_unaccounted: fullyReconciled ? 0 : Math.round((issue.quantity_issued - newReturnedTotal - newWastedTotal) * 100) / 100,
   };
 }

@@ -4,7 +4,8 @@ async function nextId(env, table, prefix, pad = 6) {
 }
 
 function deriveStatus(items) {
-  if (items.every((i) => i.quantity_received >= i.quantity_ordered)) return "received";
+  const isLineComplete = (i) => i.quantity_received >= i.quantity_ordered || i.status === "short_closed";
+  if (items.every(isLineComplete)) return "received";
   if (items.some((i) => i.quantity_received > 0)) return "partially_received";
   return "ordered";
 }

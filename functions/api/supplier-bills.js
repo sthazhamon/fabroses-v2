@@ -17,11 +17,15 @@ export async function onRequestPost({ request, env, data }) {
   const { purchase_order_id, supplier_party_id, supplier_name, bill_number, bill_date, description, lines } = body;
   if (!supplier_name || !lines || !lines.length) return Response.json({ error: "supplier_name and at least one line item are required" }, { status: 400 });
 
-  let amount = 0;
+  let preTaxAmount = 0, totalTax = 0;
   for (const line of lines) {
     if (!line.quantity || line.rate == null) return Response.json({ error: "Each line needs quantity and rate" }, { status: 400 });
-    amount += line.quantity * line.rate;
+    const lineBase = line.quantity * line.rate;
+    const lineTax = Math.round(lineBase * (line.tax_rate || 0)) / 100;
+    preTaxAmount += lineBase;
+    totalTax += lineTax;
   }
+  const amount = preTaxAmount + totalTax;
 
   const id = await nextId(env, "supplier_bills", "SBILL");
   const effectiveDate = bill_date || new Date().toISOString().slice(0, 10);
@@ -30,9 +34,11 @@ export async function onRequestPost({ request, env, data }) {
   ).bind(id, purchase_order_id || null, supplier_party_id || null, supplier_name, bill_number || null, effectiveDate, amount, description || null).run();
 
   for (const line of lines) {
+    const lineBase = line.quantity * line.rate;
+    const lineTax = Math.round(lineBase * (line.tax_rate || 0)) / 100;
     await env.DB.prepare(
-      "INSERT INTO supplier_bill_items (supplier_bill_id, purchase_order_item_id, item_id, quantity, rate, line_total) VALUES (?, ?, ?, ?, ?, ?)"
-    ).bind(id, line.purchase_order_item_id || null, line.item_id || null, line.quantity, line.rate, line.quantity * line.rate).run();
+      "INSERT INTO supplier_bill_items (supplier_bill_id, purchase_order_item_id, item_id, quantity, rate, tax_rate, tax_amount, line_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, line.purchase_order_item_id || null, line.item_id || null, line.quantity, line.rate, line.tax_rate || 0, lineTax, lineBase + lineTax).run();
   }
 
   if (purchase_order_id) {
@@ -46,11 +52,12 @@ export async function onRequestPost({ request, env, data }) {
   }
 
   const inventoryOrExpenseId = await accountFixedId(env, purchase_order_id ? "1200" : "5000");
-  const jeLines = [{ account_id: inventoryOrExpenseId, debit: amount }];
+  const jeLines = [{ account_id: inventoryOrExpenseId, debit: preTaxAmount }];
+  if (totalTax > 0) jeLines.push({ account_id: await accountFixedId(env, "1300"), debit: totalTax });
   if (supplier_party_id) jeLines.push({ account_id: await getOrCreatePartyAccount(env, supplier_party_id), credit: amount });
   else jeLines.push({ account_id: await accountFixedId(env, "1000"), credit: amount });
 
   await postJournalEntry(env, { date: effectiveDate, description: description || `Bill from ${supplier_name}`, reference_type: "supplier_bill", reference_id: id, created_by: data.user?.name, lines: jeLines });
 
-  return Response.json({ id, amount });
+  return Response.json({ id, amount, pre_tax_amount: preTaxAmount, tax_amount: totalTax });
 }

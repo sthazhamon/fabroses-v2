@@ -174,6 +174,17 @@
       <div class="card"><h4 style="margin-top:0;">Stock by site</h4><div id="stock-by-site" class="muted">Loading...</div></div>
     </section>
 
+    <section class="panel" id="panel-movements">
+      <h3>Movements</h3>
+      <p class="muted">Every material movement — part number, lot, where it went, and when.</p>
+      <div class="card">
+        <div class="row"><div><label>From</label><input id="mv-from" type="date"></div><div><label>To</label><input id="mv-to" type="date"></div></div>
+        <div class="row"><div><label>Item</label><select id="mv-item"><option value="">-- all items --</option></select></div><div><label>Site</label><select id="mv-site"><option value="">-- all sites --</option></select></div></div>
+        <button class="secondary" onclick="loadMovements()">Filter</button>
+      </div>
+      <div id="movements-list" class="muted">Loading...</div>
+    </section>
+
     <section class="panel" id="panel-po">
       <h3>Purchase Orders</h3>
       <label>Supplier <button type="button" class="secondary btn-sm" onclick="addPartyInline('supplier','po-supplier-select')">+new</button></label>
@@ -286,7 +297,8 @@
       <label>Type</label><select id="sb-type" onchange="toggleSupplierBillType()"><option value="po">Against received PO line(s)</option><option value="cash">Cash purchase (no PO)</option></select>
       <div id="sb-po-wrap"><label>Unbilled, received lines</label><div id="sb-po-lines" class="muted">Loading...</div></div>
       <div id="sb-cash-wrap" style="display:none;"><label>Item (optional)</label><select id="sb-cash-item"></select>
-        <div class="row"><div><label>Quantity</label><input id="sb-cash-qty" type="number" step="0.1" value="1"></div><div><label>Rate (Rs)</label><input id="sb-cash-rate" type="number" step="0.01"></div></div></div>
+        <div class="row"><div><label>Quantity</label><input id="sb-cash-qty" type="number" step="0.1" value="1"></div><div><label>Rate (Rs)</label><input id="sb-cash-rate" type="number" step="0.01"></div><div><label>Tax %</label><input id="sb-cash-tax" type="number" step="0.1" value="0"></div></div></div>
+      <label>Bill date</label><input id="sb-date" type="date">
       <label>Supplier <button type="button" class="secondary btn-sm" onclick="addPartyInline('supplier','sb-supplier-select')">+new</button></label>
       <select id="sb-supplier-select"></select>
       <label>Bill number</label><input id="sb-number">
@@ -419,6 +431,7 @@ const TABS = [
   { id: "catalogue", label: "Catalogue", roles: ["admin","accountant"] },
   { id: "parties", label: "Parties", roles: ["admin","accountant"] },
   { id: "sites", label: "Sites", roles: ["admin","accountant","dispatch"] },
+  { id: "movements", label: "Movements", roles: ["admin","accountant","dispatch"] },
   { id: "users", label: "Users", roles: ["admin"] },
   { id: "po", label: "Purchase Orders", roles: ["admin","accountant"] },
   { id: "receive", label: "Receive", roles: ["admin","accountant","dispatch"] },
@@ -518,6 +531,7 @@ function loadTabData(tabId){
     if(tabId==="dashboard") loadDashboard();
     if(tabId==="catalogue"){ populateMasterDropdowns(); loadItems(); }
     if(tabId==="sites"){ loadSites(); loadStockBySite(); }
+    if(tabId==="movements"){ loadMovementFilters(); loadMovements(); }
     if(tabId==="po"){ populatePartyDropdown("po-supplier-select","supplier"); loadPOs(); }
     if(tabId==="workorders"){ loadBacklog(); populateSiteDropdown("wo-worker","worker"); populateItemDropdown("wo-intended","finished_good"); loadWOs(); }
     if(tabId==="mywork") loadMyWork();
@@ -871,14 +885,14 @@ async function loadStockBySite(){
     const html=__stockBySiteRaw.sites.map(function(entry){
       const byItem = {};
       entry.lots.forEach(function(l){
-        if(!byItem[l.item_id]) byItem[l.item_id] = { item_name: l.item_name, total: 0, lots: [] };
+        if(!byItem[l.item_id]) byItem[l.item_id] = { item_name: l.item_name, item_code: l.item_code, total: 0, lots: [] };
         byItem[l.item_id].total += l.quantity_balance;
         byItem[l.item_id].lots.push(l);
       });
       const rows = Object.keys(byItem).map(function(itemId){
         const agg = byItem[itemId];
         const rowId = "agg-"+entry.site.id+"-"+itemId;
-        return '<tr><td>'+agg.item_name+'</td><td>'+agg.total+'</td><td><button class="secondary btn-sm" onclick="toggleLotExpand(\''+rowId+'\')">Show lots</button></td></tr>'+
+        return '<tr><td>'+agg.item_name+' ('+(agg.item_code||'-')+')</td><td>'+agg.total+'</td><td><button class="secondary btn-sm" onclick="toggleLotExpand(\''+rowId+'\')">Show lots</button></td></tr>'+
           '<tr id="'+rowId+'" style="display:none;"><td colspan="3">'+agg.lots.map(function(l){return '<div class="row" style="margin:4px 0;"><span style="flex:2;">'+l.id+'</span>'+
             '<input id="lotqty-'+l.id+'" type="number" step="0.1" value="'+l.quantity_balance+'" style="flex:1;">'+
             '<button class="secondary btn-sm" onclick="saveLotQty(\''+l.id+'\')">Save</button>'+
@@ -888,6 +902,30 @@ async function loadStockBySite(){
     }).join("");
     document.getElementById("stock-by-site").innerHTML=html||"No sites yet.";
   }catch(e){document.getElementById("stock-by-site").textContent=e.message;}
+}
+async function loadMovementFilters(){
+  try{
+    const items = await apiFetch("/items");
+    document.getElementById("mv-item").innerHTML = '<option value="">-- all items --</option>'+items.map(function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+'</option>';}).join("");
+    const sites = await apiFetch("/sites");
+    document.getElementById("mv-site").innerHTML = '<option value="">-- all sites --</option>'+sites.map(function(s){return '<option value="'+s.id+'">'+s.name+'</option>';}).join("");
+  }catch(e){}
+}
+async function loadMovements(){
+  try{
+    const params = [];
+    const from=document.getElementById("mv-from").value, to=document.getElementById("mv-to").value;
+    const itemId=document.getElementById("mv-item").value, siteId=document.getElementById("mv-site").value;
+    if(from) params.push("from="+from);
+    if(to) params.push("to="+to);
+    if(itemId) params.push("item_id="+itemId);
+    if(siteId) params.push("site_id="+siteId);
+    const qs = params.length?"?"+params.join("&"):"";
+    const list = await apiFetch("/material-movements"+qs);
+    if(!list.length){ document.getElementById("movements-list").innerHTML = "<p class='muted'>Nothing matches this filter.</p>"; return; }
+    const rows = list.map(function(m){return '<tr><td>'+(m.item_name||"-")+' ('+(m.item_code||"-")+')</td><td>'+(m.lot_id||"-")+'</td><td>'+(m.from_site_name||"-")+' → '+(m.to_site_name||"-")+'</td><td>'+m.quantity+'</td><td>'+m.event_type+'</td><td>'+m.created_at+'</td></tr>';}).join("");
+    document.getElementById("movements-list").innerHTML = '<table><tr><th>Item</th><th>Lot</th><th>From → To</th><th>Qty</th><th>Event</th><th>Date</th></tr>'+rows+'</table>';
+  }catch(e){document.getElementById("movements-list").textContent=e.message;}
 }
 function toggleLotExpand(rowId){
   const row = document.getElementById(rowId);
@@ -969,18 +1007,43 @@ async function viewPO(id){
     const list = await apiFetch("/purchase-orders");
     const po = list.find(function(p){return p.id===id;});
     const rows = po.items.map(function(line){
-      const recvForm = line.quantity_received < line.quantity_ordered ?
+      const recvForm = line.status==="short_closed" ? "short closed" : line.quantity_received < line.quantity_ordered ?
         '<input id="po-recv-'+line.id+'" type="number" step="0.1" placeholder="Qty" style="width:70px;display:inline-block;"> '+
-        '<button class="secondary btn-sm" onclick="receivePOLine(\''+line.id+'\',\''+id+'\')">Receive</button>' : "fully received";
-      return '<tr><td>'+line.item_name+'</td><td>'+line.quantity_received+'/'+line.quantity_ordered+'</td><td>'+recvForm+'</td></tr>';
+        '<button class="secondary btn-sm" onclick="receivePOLine(\''+line.id+'\',\''+id+'\')">Receive</button> '+
+        '<button class="secondary btn-sm" onclick="shortClosePOLine(\''+line.id+'\',\''+id+'\')">Short close</button>' : "fully received";
+      const amount = line.rate!=null ? (line.rate*line.quantity_ordered).toFixed(2) : "-";
+      const canEdit = line.quantity_received === 0 && !line.quantity_billed;
+      return '<tr><td>'+line.item_name+'</td><td id="po-line-view-'+line.id+'">'+line.quantity_received+'/'+line.quantity_ordered+'</td><td id="po-line-rate-view-'+line.id+'">'+(line.rate!=null?line.rate:'-')+'</td><td>'+amount+'</td><td>'+recvForm+
+        (canEdit?' <button class="secondary btn-sm" onclick="editPOLine(\''+line.id+'\',\''+id+'\','+line.quantity_ordered+','+(line.rate||0)+')">Edit</button>':'')+
+        '</td></tr><tr id="po-line-edit-'+line.id+'" style="display:none;"><td colspan="5"><div id="po-line-edit-form-'+line.id+'"></div></td></tr>';
     }).join("");
     document.getElementById("po-detail").innerHTML = '<div class="card"><div class="code-big">'+po.id+'</div><p>'+po.supplier_name+' | Status: '+po.status+' | Bill: '+po.bill_status+'</p>'+
-      '<table><tr><th>Item</th><th>Progress</th><th></th></tr>'+rows+'</table></div>';
+      '<table><tr><th>Item</th><th>Progress</th><th>Rate</th><th>Amount</th><th></th></tr>'+rows+'</table></div>';
   }catch(e){showError(e.message);}
 }
 async function receivePOLine(lineId, poId){
   const qty=parseFloat(document.getElementById("po-recv-"+lineId).value); if(!qty){alert("Enter quantity");return;}
   try{ await apiFetch("/purchase-order-items/"+lineId+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_received:qty})}); viewPO(poId); loadPOs(); }catch(e){showError(e.message);}
+}
+function editPOLine(lineId, poId, currentQty, currentRate){
+  const row = document.getElementById("po-line-edit-"+lineId);
+  row.style.display = "table-row";
+  document.getElementById("po-line-edit-form-"+lineId).innerHTML =
+    '<div class="row"><input id="po-edit-qty-'+lineId+'" type="number" step="0.1" value="'+currentQty+'" placeholder="Quantity" style="flex:1;">'+
+    '<input id="po-edit-rate-'+lineId+'" type="number" step="0.01" value="'+currentRate+'" placeholder="Rate" style="flex:1;">'+
+    '<button class="secondary btn-sm" onclick="submitPOLineEdit(\''+lineId+'\',\''+poId+'\')">Save</button></div><div id="po-edit-msg-'+lineId+'"></div>';
+}
+async function submitPOLineEdit(lineId, poId){
+  try{
+    const quantity_ordered = parseFloat(document.getElementById("po-edit-qty-"+lineId).value);
+    const rate = parseFloat(document.getElementById("po-edit-rate-"+lineId).value);
+    await apiFetch("/purchase-order-items/"+lineId,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_ordered:quantity_ordered,rate:rate})});
+    viewPO(poId); loadPOs();
+  }catch(e){ document.getElementById("po-edit-msg-"+lineId).innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
+}
+async function shortClosePOLine(lineId, poId){
+  if(!confirm("Short close this line? No more will be expected against it.")) return;
+  try{ await apiFetch("/purchase-order-items/"+lineId+"/short-close",{method:"POST",headers:{"Content-Type":"application/json"}}); viewPO(poId); loadPOs(); }catch(e){showError(e.message);}
 }
 
 // ---------------- Work Orders ----------------
@@ -1318,7 +1381,8 @@ async function viewMyWorkOrder(id){
       '<p>Stage: <span class="stage-badge">'+w.stage+'</span> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
       materialCheckSection+
       (canStartStage && allVerified?'<button class="secondary" onclick="startMyWork(\''+w.id+'\')">Start work</button><div id="mywork-start-msg"></div>':'')+
-      (canMarkDone?'<button class="secondary" onclick="markJobDone(\''+w.id+'\')">Mark job done</button><p class="muted">Consumes the raw material this job needed and adds the finished piece to your own stock, ready to ship whenever you like.</p><div id="mywork-done-msg"></div>':'')+
+      (canMarkDone?'<label>Labor cost for this job (optional, can be added later via Worker Pay)</label><input id="mywork-labor-cost-'+w.id+'" type="number" step="0.01">'+
+        '<button class="secondary" onclick="markJobDone(\''+w.id+'\')">Mark job done</button><p class="muted">Consumes the raw material this job needed and adds the finished piece to your own stock, ready to ship whenever you like.</p><div id="mywork-done-msg"></div>':'')+
       '<h4>Add a work-in-progress photo</h4><input type="file" accept="image/*" id="mywork-photo">'+
       '<button class="secondary" onclick="uploadMyWIPPhoto(\''+w.id+'\')">Upload</button><div id="mywork-photo-msg"></div>'+
       photoSection+
@@ -1331,7 +1395,9 @@ async function startMyWork(id){
 }
 async function markJobDone(id){
   try{
-    const res = await apiFetch("/work-orders/"+id+"/mark-done",{method:"POST",headers:{"Content-Type":"application/json"}});
+    const laborField = document.getElementById("mywork-labor-cost-"+id);
+    const laborCost = laborField && laborField.value ? parseFloat(laborField.value) : null;
+    const res = await apiFetch("/work-orders/"+id+"/mark-done",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({labor_cost:laborCost})});
     document.getElementById("mywork-done-msg").innerHTML='<p style="color:var(--ok);">Done — '+res.quantity_done+' added to your own stock.</p>';
     viewMyWorkOrder(id); loadMyWork();
   }catch(e){ document.getElementById("mywork-done-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
@@ -1378,7 +1444,7 @@ async function shipBackFromMyWork(id){
 async function loadDispatchQueue(){
   try{
     const allDispatches = await apiFetch("/dispatches");
-    const pendingDispatches = allDispatches.filter(function(d){return d.status!=="shipped"&&d.status!=="received";});
+    const pendingDispatches = allDispatches.filter(function(d){return d.status!=="shipped"&&d.status!=="received"&&d.status!=="cancelled";});
     const dispHtml = renderCardList(pendingDispatches, {
       icon: function(){return "📤";}, title: function(d){return d.id;}, sub: function(d){return d.dispatch_type+' · '+(d.item_summary||"-")+' · '+d.status;},
       action: function(d){return '<button class="secondary btn-sm" onclick="openDispatchAction(\''+d.id+'\')">Act on it</button>';}, empty: "Nothing in progress.",
@@ -1406,8 +1472,17 @@ async function openDispatchAction(dispatchId){
       '<table><tr><th>Item</th><th>Qty</th><th></th></tr>'+itemRows+'</table>'+
       (allPicked && d.status!=="shipped" ? '<label>Courier</label><input id="ship-courier"><label>Tracking (optional)</label><input id="ship-tracking">'+
         '<button class="secondary" onclick="shipThisDispatch(\''+d.id+'\')">Pack & Send</button><div id="ship-msg"></div>' : '')+
+      (d.status==="pending_pick"?'<button class="secondary" onclick="cancelDispatch(\''+d.id+'\')" style="margin-top:10px;color:var(--warn);border-color:var(--warn);">Cancel this dispatch</button><div id="cancel-msg"></div>':'')+
       '</div>';
   }catch(e){showError(e.message);}
+}
+async function cancelDispatch(dispatchId){
+  if(!confirm("Cancel this dispatch? This can't be undone.")) return;
+  try{
+    await apiFetch("/dispatches/"+dispatchId+"/cancel",{method:"POST",headers:{"Content-Type":"application/json"}});
+    document.getElementById("dispatch-action-area").innerHTML = '<p style="color:var(--ok);">Cancelled.</p>';
+    loadDispatchQueue();
+  }catch(e){ document.getElementById("cancel-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
 async function scanAndFillPick(dispatchItemId){
   openScanner(async function(decoded){
@@ -1496,7 +1571,8 @@ async function loadReceiveQueue(){
 async function openReceiveConfirm(dispatchId){
   try{
     const d = await apiFetch("/dispatches/"+dispatchId);
-    const rows = d.items.map(function(it){return '<tr><td>'+it.item_name+'</td><td>'+it.scanned_quantity+'</td><td><input id="recv-qty-'+it.id+'" type="number" step="0.1" value="'+it.scanned_quantity+'" style="width:80px;"></td></tr>';}).join("");
+    const rows = d.items.map(function(it){return '<tr><td>'+it.item_name+' ('+(it.item_code||'-')+')</td><td>'+(it.lot_id||'-')+'</td><td>'+it.scanned_quantity+'</td><td><input id="recv-qty-'+it.id+'" type="number" step="0.1" value="'+it.scanned_quantity+'" style="width:80px;"></td>'+
+      (it.lot_id?'<td><button type="button" class="secondary btn-sm" onclick=\'printQR("'+(it.item_code||it.item_id)+"|"+it.lot_id+'","'+it.lot_id+'")\'>Get QR</button></td>':'<td></td>')+'</tr>';}).join("");
     const isReturnShipment = d.dispatch_type==="return_shipment";
     let reconHtml = "";
     if(isReturnShipment && d.items.length){
@@ -1512,7 +1588,7 @@ async function openReceiveConfirm(dispatchId){
     }
     document.getElementById("receive-confirm-area").innerHTML = '<div class="card"><h4 style="margin-top:0;">Confirm '+d.id+'</h4>'+
       '<p class="muted">From: '+(d.from_site_name||"-")+'</p>'+
-      '<table><tr><th>Item</th><th>Shipped</th><th>Actually received</th></tr>'+rows+'</table>'+
+      '<table><tr><th>Item</th><th>Lot</th><th>Shipped</th><th>Actually received</th><th></th></tr>'+rows+'</table>'+
       (isReturnShipment?'<label>Labor cost for this job</label><input id="recv-labor-cost" type="number" step="0.01">':'')+
       reconHtml+
       '<button class="secondary" onclick="submitReceiveConfirm(\''+d.id+'\')">Confirm</button><div id="recv-confirm-msg"></div></div>';
@@ -1548,6 +1624,7 @@ async function loadPOReceiveQueue(){
     const pending = [];
     list.forEach(function(po){
       po.items.forEach(function(line){
+        if(line.status === "short_closed") return;
         const outstanding = line.quantity_ordered - line.quantity_received;
         if(outstanding > 0.001) pending.push({ po: po, line: line, outstanding: outstanding });
       });
@@ -1584,18 +1661,53 @@ async function lookupLotReturns(){
       '<p>Issued: '+i.quantity_issued+' | Already accounted: '+(i.quantity_returned_stock+i.quantity_wasted)+'</p>'+
       '<label>Returned as usable stock</label><input id="ret-stock-'+i.id+'" type="number" step="0.1" value="0">'+
       '<label>Wasted</label><input id="ret-waste-'+i.id+'" type="number" step="0.1" value="0">'+
-      '<button class="secondary" onclick="confirmMaterialReturn(\''+i.id+'\')">Confirm this return</button><div id="ret-msg-'+i.id+'"></div></div>';}).join("");
+      '<button class="secondary" onclick="reviewMaterialReturn(\''+i.id+'\')">Review</button> '+
+      '<button class="secondary btn-sm" onclick="viewPastReturns(\''+i.id+'\')">View past entries</button>'+
+      '<div id="ret-review-'+i.id+'"></div><div id="ret-msg-'+i.id+'"></div><div id="ret-past-'+i.id+'"></div></div>';}).join("");
     document.getElementById("return-options").innerHTML = options;
   }catch(e){showError(e.message);}
+}
+function reviewMaterialReturn(issueId){
+  const returned = parseFloat(document.getElementById("ret-stock-"+issueId).value)||0;
+  const wasted = parseFloat(document.getElementById("ret-waste-"+issueId).value)||0;
+  document.getElementById("ret-review-"+issueId).innerHTML = '<div class="card" style="background:#fff8e1;"><p><b>Confirm this entry:</b> '+returned+' returned as usable stock, '+wasted+' wasted.</p>'+
+    '<button class="secondary" onclick="confirmMaterialReturn(\''+issueId+'\')">Yes, this is correct</button> '+
+    '<button class="secondary btn-sm" onclick="document.getElementById(\'ret-review-'+issueId+'\').innerHTML=\'\'">Cancel</button></div>';
 }
 async function confirmMaterialReturn(issueId){
   try{
     const returned = parseFloat(document.getElementById("ret-stock-"+issueId).value)||0;
     const wasted = parseFloat(document.getElementById("ret-waste-"+issueId).value)||0;
     const res = await apiFetch("/material-issues/"+issueId+"/return",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_returned_stock:returned,quantity_wasted:wasted})});
+    document.getElementById("ret-review-"+issueId).innerHTML = "";
     document.getElementById("ret-msg-"+issueId).innerHTML='<p style="color:var(--ok);">'+(res.fully_reconciled?"Fully closed.":"Recorded — "+res.still_unaccounted+" still unaccounted for.")+'</p>';
     loadReceiveHistory();
   }catch(e){showError(e.message);}
+}
+async function viewPastReturns(issueId){
+  try{
+    const events = await apiFetch("/material-issues/"+issueId+"/return-events");
+    if(!events.length){ document.getElementById("ret-past-"+issueId).innerHTML = '<p class="muted">Nothing recorded yet for this issue.</p>'; return; }
+    const rows = events.map(function(ev){
+      const canCorrect = !ev.corrected_at && (ev.quantity_returned_stock || ev.quantity_wasted);
+      return '<div class="card" style="margin:4px 0;"><p>'+ev.created_at+' — Returned: '+ev.quantity_returned_stock+', Wasted: '+ev.quantity_wasted+
+        (ev.corrected_at?' <b style="color:var(--warn);">(corrected)</b>':'')+(ev.notes?' — '+ev.notes:'')+'</p>'+
+        (canCorrect?'<div class="row"><input id="corr-ret-'+ev.id+'" type="number" step="0.1" placeholder="Should have been (returned)" value="'+ev.quantity_returned_stock+'" style="flex:1;">'+
+          '<input id="corr-waste-'+ev.id+'" type="number" step="0.1" placeholder="Should have been (wasted)" value="'+ev.quantity_wasted+'" style="flex:1;">'+
+          '<button class="secondary btn-sm" onclick="submitReturnCorrection(\''+ev.id+'\',\''+issueId+'\')">Correct</button></div><div id="corr-msg-'+ev.id+'"></div>':'')+
+        '</div>';
+    }).join("");
+    document.getElementById("ret-past-"+issueId).innerHTML = '<h4>Past entries</h4>'+rows;
+  }catch(e){showError(e.message);}
+}
+async function submitReturnCorrection(eventId, issueId){
+  try{
+    const corrected_returned_stock = parseFloat(document.getElementById("corr-ret-"+eventId).value);
+    const corrected_wasted = parseFloat(document.getElementById("corr-waste-"+eventId).value);
+    await apiFetch("/material-return-events/"+eventId+"/correct",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({corrected_returned_stock:corrected_returned_stock,corrected_wasted:corrected_wasted})});
+    document.getElementById("corr-msg-"+eventId).innerHTML='<p style="color:var(--ok);">Correction applied.</p>';
+    viewPastReturns(issueId);
+  }catch(e){ document.getElementById("corr-msg-"+eventId).innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
 async function loadReceiveHistory(){
   try{
@@ -1621,7 +1733,7 @@ async function addCOLine(){
   row.className = "card"; row.id = lineId;
   row.innerHTML = '<label>Item</label><select class="co-line-item">'+optionsHtml+'</select>'+
     '<label>Or describe custom request</label><textarea class="co-line-desc" rows="2"></textarea>'+
-    '<div class="row"><div><label>Quantity</label><input class="co-line-qty" type="number" step="1" value="1"></div><div><label>Tax %</label><input class="co-line-tax" type="number" step="0.1" value="0"></div></div>'+
+    '<div class="row"><div><label>Quantity</label><input class="co-line-qty" type="number" step="1" value="1"></div><div><label>Unit price (reference only, Rs)</label><input class="co-line-price" type="number" step="0.01"></div><div><label>Tax %</label><input class="co-line-tax" type="number" step="0.1" value="0"></div></div>'+
     '<button type="button" class="secondary btn-sm" onclick="document.getElementById(\''+lineId+'\').remove()">Remove line</button>';
   document.getElementById("co-lines").appendChild(row);
 }
@@ -1636,6 +1748,7 @@ async function createCO(){
       item_id: row.querySelector(".co-line-item").value||null,
       description: row.querySelector(".co-line-desc").value.trim()||null,
       quantity: parseFloat(row.querySelector(".co-line-qty").value)||1,
+      unit_price: row.querySelector(".co-line-price").value?parseFloat(row.querySelector(".co-line-price").value):null,
       tax_rate: parseFloat(row.querySelector(".co-line-tax").value)||0,
     };});
     const res=await apiFetch("/customer-orders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
@@ -1664,7 +1777,7 @@ async function viewCO(id){
     const o=await apiFetch("/customer-orders/"+id);
     let html='<div class="card"><div class="code-big">'+o.id+'</div><p>'+(o.customer_name||o.reseller_name)+(o.reseller_name?' (reseller)':'')+'</p><p>Status: <span class="stage-badge">'+o.status+'</span></p>';
     const itemRows = o.items.map(function(line){
-      let cell = '<tr><td>'+(line.item_name||line.description)+'</td><td>'+line.quantity+'</td><td>'+(line.current_stock!==null?line.current_stock:"-")+'</td>';
+      let cell = '<tr><td>'+(line.item_name||line.description)+'</td><td>'+line.quantity+'</td><td>'+(line.unit_price!=null?"Rs "+line.unit_price:"-")+'</td><td>'+(line.current_stock!==null?line.current_stock:"-")+'</td>';
       if(line.linked_work_order){
         cell += '<td>'+line.linked_work_order.id+' ('+line.linked_work_order.stage+')</td>';
       } else if(!["billed","shipped","cancelled"].includes(o.status)){
@@ -1676,7 +1789,7 @@ async function viewCO(id){
       cell += '</tr>';
       return cell;
     }).join("");
-    html += '<table><tr><th>Item</th><th>Qty</th><th>Stock</th><th>Work Order</th><th>Open WOs</th></tr>'+itemRows+'</table>';
+    html += '<table><tr><th>Item</th><th>Qty</th><th>Ref. price</th><th>Stock</th><th>Work Order</th><th>Open WOs</th></tr>'+itemRows+'</table>';
     if(o.sale) html+='<p>Sale: '+o.sale.id+' — Rs '+o.sale.total_amount+'</p>';
     if(!["billed","shipped","cancelled"].includes(o.status)){
       html += '<button class="secondary" onclick="billCOViaSales(\''+o.id+'\')">Bill via Sales</button><p class="muted">Opens the Sales tab, pre-filled with this order\'s lines — full control over tax and pricing there.</p>';
@@ -1862,16 +1975,27 @@ async function loadUnbilledPOs(){
   const rows = [];
   for(const po of list){
     for(const line of po.items){
-      const outstanding = line.quantity_received - (line.quantity_billed||0);
+      const billed = line.quantity_billed||0;
+      const outstanding = line.quantity_received - billed;
       if(outstanding > 0.001){
-        rows.push('<label><input type="checkbox" class="sb-line-check" data-line-id="'+line.id+'" data-item-id="'+line.item_id+'" data-outstanding="'+outstanding+'" style="width:auto;"> '+
-          po.id+' — '+line.item_name+' ('+outstanding+' received, not yet billed) '+
-          '<input type="number" step="0.01" class="sb-line-rate" data-line-id="'+line.id+'" placeholder="Rate" style="width:90px;display:inline-block;"></label>');
+        rows.push('<div class="card" style="margin:4px 0;"><label><input type="checkbox" class="sb-line-check" data-line-id="'+line.id+'" data-item-id="'+line.item_id+'" data-outstanding="'+outstanding+'" style="width:auto;"> '+
+          po.id+' — '+line.item_name+'</label>'+
+          '<p class="muted">Ordered: '+line.quantity_ordered+' · Received: '+line.quantity_received+' · Billed: '+billed+' · Outstanding: '+outstanding+'</p>'+
+          '<div class="row"><input type="number" step="0.01" class="sb-line-rate" data-line-id="'+line.id+'" placeholder="Rate" oninput="updateSBLineAmount(\''+line.id+'\','+outstanding+')" style="flex:1;">'+
+          '<input type="number" step="0.1" class="sb-line-tax" data-line-id="'+line.id+'" placeholder="Tax %" value="0" oninput="updateSBLineAmount(\''+line.id+'\','+outstanding+')" style="flex:1;">'+
+          '<span id="sb-amount-'+line.id+'" class="muted" style="flex:1;align-self:center;">Amount: —</span></div></div>');
       }
     }
   }
-  document.getElementById("sb-po-lines").innerHTML = rows.length?rows.join("<br>"):"<p class='muted'>Nothing received-but-unbilled right now.</p>";
+  document.getElementById("sb-po-lines").innerHTML = rows.length?rows.join(""):"<p class='muted'>Nothing received-but-unbilled right now.</p>";
   await populateItemDropdown("sb-cash-item");
+}
+function updateSBLineAmount(lineId, outstanding){
+  const rate = parseFloat(document.querySelector('.sb-line-rate[data-line-id="'+lineId+'"]').value)||0;
+  const taxRate = parseFloat(document.querySelector('.sb-line-tax[data-line-id="'+lineId+'"]').value)||0;
+  const base = rate*outstanding;
+  const tax = base*taxRate/100;
+  document.getElementById("sb-amount-"+lineId).textContent = "Amount: Rs " + (base+tax).toFixed(2) + (taxRate?" (incl. Rs "+tax.toFixed(2)+" tax)":"");
 }
 async function createSupplierBill(){
   try{
@@ -1884,18 +2008,19 @@ async function createSupplierBill(){
       if(!checked.length){ alert("Select at least one line"); return; }
       lines = checked.map(function(cb){
         const rateInput = document.querySelector('.sb-line-rate[data-line-id="'+cb.dataset.lineId+'"]');
-        return { purchase_order_item_id: cb.dataset.lineId, item_id: cb.dataset.itemId, quantity: parseFloat(cb.dataset.outstanding), rate: parseFloat(rateInput.value)||0 };
+        const taxInput = document.querySelector('.sb-line-tax[data-line-id="'+cb.dataset.lineId+'"]');
+        return { purchase_order_item_id: cb.dataset.lineId, item_id: cb.dataset.itemId, quantity: parseFloat(cb.dataset.outstanding), rate: parseFloat(rateInput.value)||0, tax_rate: parseFloat(taxInput.value)||0 };
       });
       const allPOs = await apiFetch("/purchase-orders");
       for(const l of lines){
         for(const po of allPOs){ if(po.items.some(function(i){return String(i.id)===String(l.purchase_order_item_id);})){ purchase_order_id = po.id; } }
       }
     } else {
-      lines = [{ item_id: document.getElementById("sb-cash-item").value||null, quantity: parseFloat(document.getElementById("sb-cash-qty").value)||1, rate: parseFloat(document.getElementById("sb-cash-rate").value)||0 }];
+      lines = [{ item_id: document.getElementById("sb-cash-item").value||null, quantity: parseFloat(document.getElementById("sb-cash-qty").value)||1, rate: parseFloat(document.getElementById("sb-cash-rate").value)||0, tax_rate: parseFloat(document.getElementById("sb-cash-tax").value)||0 }];
     }
     const res = await apiFetch("/supplier-bills",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       purchase_order_id: purchase_order_id, supplier_party_id: supplierSel.value||null, supplier_name: supplierParty?supplierParty.name:"Cash purchase",
-      bill_number:document.getElementById("sb-number").value.trim(), description:document.getElementById("sb-desc").value.trim(), lines:lines })});
+      bill_number:document.getElementById("sb-number").value.trim(), bill_date:document.getElementById("sb-date").value||null, description:document.getElementById("sb-desc").value.trim(), lines:lines })});
     document.getElementById("sb-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+' — Rs '+res.amount+'</p>';
     document.getElementById("sb-supplier-select").value="";
     document.getElementById("sb-number").value="";
