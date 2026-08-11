@@ -384,6 +384,7 @@
       <label>PIN (6+ chars)</label><input id="u-pin">
       <label>Role</label><select id="u-role" onchange="toggleWorkerSiteOption()"><option value="admin">Admin</option><option value="accountant">Accountant</option><option value="worker">Worker</option><option value="dispatch">Dispatch</option><option value="reseller">Reseller</option></select>
       <div id="u-worker-site-wrap"><label><input type="checkbox" id="u-create-site" checked style="width:auto;"> Create their own worker site</label></div>
+      <div id="u-reseller-wrap" style="display:none;"><label>Reseller</label><select id="u-reseller-select"></select></div>
       <button class="primary" onclick="createUser()">Create login</button>
       <div id="user-result"></div>
       <div class="card"><h4 style="margin-top:0;">Existing logins</h4><div id="users-list" class="muted">Loading...</div></div>
@@ -414,15 +415,15 @@ const STAGES = ["Order Placed","Material Received","Work Started","Work Shipped"
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", roles: ["admin","accountant"] },
-  { id: "catalogue", label: "Catalogue", roles: ["admin","accountant","dispatch"] },
+  { id: "catalogue", label: "Catalogue", roles: ["admin","accountant"] },
   { id: "sites", label: "Sites", roles: ["admin","accountant","dispatch"] },
-  { id: "po", label: "Purchase Orders", roles: ["admin","accountant","dispatch"] },
-  { id: "workorders", label: "Work Orders", roles: ["admin","accountant","dispatch"] },
+  { id: "po", label: "Purchase Orders", roles: ["admin","accountant"] },
+  { id: "workorders", label: "Work Orders", roles: ["admin","accountant"] },
   { id: "mywork", label: "My Work", roles: ["worker"] },
   { id: "dispatch", label: "Dispatch", roles: ["admin","accountant","dispatch"] },
   { id: "receive", label: "Receive", roles: ["admin","accountant","dispatch"] },
-  { id: "co", label: "Customer Orders", roles: ["admin","accountant","dispatch"] },
-  { id: "sales", label: "Sales", roles: ["admin","accountant","dispatch"] },
+  { id: "co", label: "Customer Orders", roles: ["admin","accountant"] },
+  { id: "sales", label: "Sales", roles: ["admin","accountant"] },
   { id: "purchases", label: "Supplier Bills", roles: ["admin","accountant"] },
   { id: "expenses", label: "Expenses", roles: ["admin","accountant"] },
   { id: "receivable", label: "Receivable", roles: ["admin","accountant"] },
@@ -444,7 +445,7 @@ const BOTTOM_NAV_PRIORITY = {
   worker: ["mywork"],
   admin: ["dashboard","workorders","dispatch","sales"],
   accountant: ["dashboard","workorders","sales","receivable"],
-  dispatch: ["dispatch","receive","workorders","po"],
+  dispatch: ["dispatch","receive","sites"],
   reseller: [],
 };
 function getSession(){ const token=localStorage.getItem("fr_token"); const role=localStorage.getItem("fr_role"); const name=localStorage.getItem("fr_name"); const siteId=localStorage.getItem("fr_site"); return token?{token,role,name,siteId}:null; }
@@ -923,8 +924,8 @@ let poLineCount = 0;
 async function addPOLine(){
   poLineCount++;
   const lineId = "poline-"+poLineCount;
-  const itemOptions = await apiFetch("/items?item_type=raw_material");
-  const optionsHtml = '<option value="">-- item --</option>'+itemOptions.map(function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+'</option>';}).join("");
+  const itemOptions = await apiFetch("/items");
+  const optionsHtml = '<option value="">-- item --</option>'+itemOptions.map(function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+' ['+i.item_type+']</option>';}).join("");
   const row = document.createElement("div");
   row.className = "card"; row.id = lineId;
   row.innerHTML = '<label>Item</label><select class="po-line-item">'+optionsHtml+'</select>'+
@@ -1110,12 +1111,40 @@ async function viewWO(id){
       (canCancel?'<button class="secondary btn-sm" onclick="cancelWO(\''+w.id+'\')" style="border-color:var(--warn);color:var(--warn);">Cancel this job</button><p class="muted">Wrong worker assigned? Cancel this and create a fresh work order for the right person — reassigning isn\'t supported, since it would leave material tracking pointing at the wrong site.</p><div id="wo-cancel-msg"></div>':'')+
       reworkSection+
       (issueRows?'<h4>Material issued</h4><table><tr><th>Item</th><th>Lot</th><th>Qty</th><th>Status</th></tr>'+issueRows+'</table>':'')+
-      (canCancel && w.job_type==="production"?'<h4>Issue material (creates a pending dispatch)</h4><label>Lot ID</label><div class="row"><input id="wo-issue-lot" placeholder="LOT-000001"><button type="button" class="secondary btn-sm" onclick="scanAndFill(\'wo-issue-lot\',\'lot\')" style="flex:0 0 90px;">📷 Scan</button></div>'+
+      (canCancel && w.job_type==="production"?'<h4>Issue material</h4><label>Raw material (from the BOM)</label><select id="wo-issue-item" onchange="loadIssueLotOptions(\''+w.id+'\')"><option value="">-- select --</option></select>'+
+      '<label>Lot</label><select id="wo-issue-lot-select"><option value="">-- select a raw material first --</option></select>'+
       '<label>Quantity</label><input id="wo-issue-qty" type="number" step="0.1">'+
-      '<button class="secondary" onclick="issueMaterial(\''+w.id+'\')">Create dispatch</button><div id="wo-issue-msg"></div>':'')+
+      '<button class="secondary" onclick="issueMaterial(\''+w.id+'\')">Issue</button><div id="wo-issue-msg"></div>':'')+
       '<p class="muted">Receiving the finished good back now happens through the Dispatch/Receive tabs, once the worker ships it — see the Receive tab.</p>'+
       (w.photos&&w.photos.length?'<p class="muted">'+w.photos.length+' work-in-progress photo(s):</p><div>'+w.photos.map(function(p){return '<img src="/api/photo/'+p.r2_key+'" onclick="viewFullPhoto(\''+p.r2_key+'\')" style="width:64px;height:64px;object-fit:cover;border-radius:6px;margin:3px;cursor:zoom-in;">';}).join("")+'</div>':'')+
       '</div>';
+    if(canCancel && w.job_type==="production" && w.intended_item_id){
+      const bomLines = await apiFetch("/items/"+w.intended_item_id+"/bom");
+      const sel = document.getElementById("wo-issue-item");
+      if(sel){
+        sel.innerHTML = '<option value="">-- select --</option>'+bomLines.map(function(b){return '<option value="'+b.raw_material_item_id+'">'+b.raw_material_name+' (needs '+b.quantity_required+'/unit)</option>';}).join("");
+        if(!bomLines.length) sel.innerHTML = '<option value="">No BOM set for this item — add one in Catalogue, or issue material won\'t know what to suggest</option>';
+      }
+    }
+  }catch(e){showError(e.message);}
+}
+async function loadIssueLotOptions(woId){
+  const itemId = document.getElementById("wo-issue-item").value;
+  const lotSelect = document.getElementById("wo-issue-lot-select");
+  if(!itemId){ lotSelect.innerHTML = '<option value="">-- select a raw material first --</option>'; return; }
+  try{
+    const res = await apiFetch("/work-orders/"+woId+"/available-lots?item_id="+itemId);
+    lotSelect.innerHTML = res.lots.length
+      ? res.lots.map(function(l){return '<option value="'+l.id+'" data-max="'+l.quantity_balance+'" data-site="'+l.site_name+'">'+l.id+' — '+l.site_name+' ('+l.quantity_balance+' available)</option>';}).join("")
+      : '<option value="">No stock anywhere for this item</option>';
+    lotSelect.onchange = function(){
+      const opt = lotSelect.options[lotSelect.selectedIndex];
+      const max = parseFloat(opt.dataset.max)||0;
+      const qtyField = document.getElementById("wo-issue-qty");
+      if(!qtyField.value || parseFloat(qtyField.value) > max) qtyField.value = max;
+      qtyField.max = max;
+    };
+    if(lotSelect.onchange) lotSelect.onchange();
   }catch(e){showError(e.message);}
 }
 async function issueRework(id){
@@ -1146,10 +1175,14 @@ async function advanceStage(id, stage){
 }
 async function issueMaterial(id){
   try{
-    const lot_id=document.getElementById("wo-issue-lot").value.trim();
+    const lot_id=document.getElementById("wo-issue-lot-select").value;
+    if(!lot_id){ alert("Select a lot"); return; }
     const quantity=parseFloat(document.getElementById("wo-issue-qty").value);
     const res = await apiFetch("/work-orders/"+id+"/issue-material",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({lot_id:lot_id,quantity:quantity})});
-    document.getElementById("wo-issue-msg").innerHTML='<p style="color:var(--ok);">Dispatch '+res.dispatch_id+' created — go to the Dispatch tab to pick, confirm, and send it.</p>';
+    document.getElementById("wo-issue-msg").innerHTML = res.direct_issue
+      ? '<p style="color:var(--ok);">Issued directly — that material was already at the worker\'s own site, nothing to dispatch.</p>'
+      : '<p style="color:var(--ok);">Dispatch '+res.dispatch_id+' created — go to the Dispatch tab to pick, confirm, and send it.</p>';
+    viewWO(id);
   }catch(e){showError(e.message);}
 }
 
@@ -1318,17 +1351,6 @@ async function shipBackFromMyWork(id){
 // ---------------- Dispatch (real two-step) ----------------
 async function loadDispatchQueue(){
   try{
-    const q=await apiFetch("/dispatch-queue");
-    const shipHtml = renderCardList(q.customer_shipments, {
-      icon: function(){return "🎁";}, title: function(o){return o.customer_name;},
-      sub: function(o){return o.id+' · '+(o.items?o.items.map(function(l){return l.item_name||l.description;}).join(", "):"");},
-      action: function(o){return '<button class="secondary btn-sm" onclick="switchTab(\'co\');viewCO(\''+o.id+'\')">Go ship</button>';},
-    });
-    const matHtml = renderCardList(q.material_to_workers, {
-      icon: function(){return "🧵";}, title: function(w){return w.description;}, sub: function(w){return w.id+' · '+w.worker_site_name;},
-      action: function(w){return '<button class="secondary btn-sm" onclick="switchTab(\'workorders\');viewWO(\''+w.id+'\')">Issue material</button>';},
-    });
-
     const allDispatches = await apiFetch("/dispatches");
     const pendingDispatches = allDispatches.filter(function(d){return d.status!=="shipped"&&d.status!=="received";});
     const dispHtml = renderCardList(pendingDispatches, {
@@ -1337,8 +1359,6 @@ async function loadDispatchQueue(){
     });
 
     document.getElementById("dispatch-queue").innerHTML=
-      '<h4>Needs a dispatch created</h4>'+
-      (q.customer_shipments.length || q.material_to_workers.length ? shipHtml+matHtml : '<p class="muted">Nothing new needs a dispatch.</p>')+
       '<h4>In progress (pick / ship)</h4>'+dispHtml;
   }catch(e){document.getElementById("dispatch-queue").textContent=e.message;}
 }
@@ -1347,11 +1367,13 @@ async function openDispatchAction(dispatchId){
     const d = await apiFetch("/dispatches/"+dispatchId);
     const itemRows = d.items.map(function(it){
       if(it.scanned_quantity===null){
-        return '<tr><td>'+it.item_name+'</td><td>'+it.expected_quantity+'</td><td>'+
-          '<input id="pick-qty-'+it.id+'" type="number" step="0.1" value="'+it.expected_quantity+'" style="width:80px;display:inline-block;">'+
-          '<button class="secondary btn-sm" onclick="confirmPickItem(\''+dispatchId+'\',\''+it.item_id+'\',\''+(it.lot_id||"")+'\',\''+it.id+'\')">Confirm pick</button></td></tr>';
+        return '<tr><td>'+it.item_name+' (expects '+(it.lot_id||"any lot")+')</td><td>'+it.expected_quantity+'</td>'+
+          '<td><div class="row"><input id="pick-item-'+it.id+'" placeholder="Item ID" style="flex:1;"><input id="pick-lot-'+it.id+'" placeholder="Lot ID" style="flex:1;">'+
+          '<button type="button" class="secondary btn-sm" onclick="scanAndFillPick(\''+it.id+'\')" style="flex:0 0 60px;">📷</button></div>'+
+          '<input id="pick-qty-'+it.id+'" type="number" step="0.1" value="'+it.expected_quantity+'" style="width:80px;margin-top:4px;">'+
+          '<button class="secondary btn-sm" onclick="confirmPickItem(\''+dispatchId+'\',\''+it.id+'\')" style="margin-top:4px;">Confirm pick</button><div id="pick-msg-'+it.id+'"></div></td></tr>';
       }
-      return '<tr><td>'+it.item_name+'</td><td>'+it.scanned_quantity+'</td><td>picked</td></tr>';
+      return '<tr><td>'+it.item_name+'</td><td>'+it.scanned_quantity+'</td><td>picked'+(it.mismatch_flag?' <b style="color:var(--warn);">(quantity mismatch)</b>':'')+'</td></tr>';
     }).join("");
     const allPicked = d.items.every(function(it){return it.scanned_quantity!==null;});
     document.getElementById("dispatch-action-area").innerHTML = '<div class="card"><div class="code-big">'+d.id+'</div><p>'+d.dispatch_type+' | status: '+d.status+'</p>'+
@@ -1361,12 +1383,26 @@ async function openDispatchAction(dispatchId){
       '</div>';
   }catch(e){showError(e.message);}
 }
-async function confirmPickItem(dispatchId, itemId, lotId, dispatchItemId){
+async function scanAndFillPick(dispatchItemId){
+  openScanner(async function(decoded){
+    const parts = decoded.split("|");
+    let itemId = parts[0];
+    if(itemId && !itemId.startsWith("ITM-")){
+      try{ const matches = await apiFetch("/items"); const found = matches.find(function(i){return i.item_code===itemId;}); if(found) itemId = found.id; }catch(e){}
+    }
+    document.getElementById("pick-item-"+dispatchItemId).value = itemId||"";
+    if(parts[1]) document.getElementById("pick-lot-"+dispatchItemId).value = parts[1];
+  });
+}
+async function confirmPickItem(dispatchId, dispatchItemId){
   try{
+    const item_id = document.getElementById("pick-item-"+dispatchItemId).value.trim();
+    const lot_id = document.getElementById("pick-lot-"+dispatchItemId).value.trim();
     const qty = parseFloat(document.getElementById("pick-qty-"+dispatchItemId).value);
-    await apiFetch("/dispatches/"+dispatchId+"/scan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item_id:itemId,lot_id:lotId||null,scanned_quantity:qty})});
+    if(!item_id){ alert("Scan or enter the item you're physically holding"); return; }
+    await apiFetch("/dispatches/"+dispatchId+"/scan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item_id:item_id,lot_id:lot_id||null,scanned_quantity:qty})});
     openDispatchAction(dispatchId);
-  }catch(e){showError(e.message);}
+  }catch(e){ document.getElementById("pick-msg-"+dispatchItemId).innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
 async function shipThisDispatch(dispatchId){
   try{
@@ -1423,7 +1459,7 @@ async function submitTrackingNote(id){
 async function loadReceiveQueue(){
   try{
     let list = await apiFetch("/dispatches");
-    list = list.filter(function(d){return d.status==="shipped";});
+    list = list.filter(function(d){return d.status==="shipped" && d.dispatch_type!=="customer_shipment";});
     const html = renderCardList(list, {
       icon: function(){return "📥";}, title: function(d){return d.id+' · '+d.dispatch_type;}, sub: function(d){return (d.item_summary||"-")+' → '+(d.to_site_name||"-");},
       action: function(d){return '<button class="secondary btn-sm" onclick="openReceiveConfirm(\''+d.id+'\')">Confirm</button>';}, empty: "Nothing awaiting confirmation.",
@@ -1577,8 +1613,7 @@ async function viewCO(id){
       html += '<button class="secondary" onclick="billCOViaSales(\''+o.id+'\')">Bill via Sales</button><p class="muted">Opens the Sales tab, pre-filled with this order\'s lines — full control over tax and pricing there.</p>';
     }
     if(o.status==="billed"){
-      html+='<label>Courier</label><input id="co-ship-courier"><label>Tracking (optional)</label><input id="co-ship-tracking">'+
-        '<button class="secondary" onclick="shipCO(\''+o.id+'\')">Ship</button><div id="co-ship-msg"></div>';
+      html+='<p class="muted">Billed — this now shows up in the Dispatch tab to be picked and shipped.</p>';
     }
     if(o.status==="shipped"){
       html+='<p>Shipped: '+(o.courier||"-")+' / '+(o.tracking_id||"no tracking yet")+'</p>'+
@@ -1587,12 +1622,6 @@ async function viewCO(id){
     }
     html+='</div>';
     document.getElementById("co-detail").innerHTML=html;
-  }catch(e){showError(e.message);}
-}
-async function shipCO(id){
-  try{
-    await apiFetch("/customer-orders/"+id+"/ship",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({courier:document.getElementById("co-ship-courier").value.trim(),tracking_id:document.getElementById("co-ship-tracking").value.trim()})});
-    document.getElementById("co-ship-msg").innerHTML='<p style="color:var(--ok);">Shipped.</p>'; viewCO(id); loadCOs();
   }catch(e){showError(e.message);}
 }
 async function updateCOTracking(id){
@@ -1611,15 +1640,25 @@ async function addSaleLine(prefill){
   const optionsHtml = '<option value="">-- item (optional) --</option>'+itemOptions.map(function(i){return '<option value="'+i.id+'"'+(prefill&&prefill.item_id===i.id?" selected":"")+'>'+i.name+(i.item_code?" ("+i.item_code+")":"")+' - stock:'+i.total_stock+'</option>';}).join("");
   const row = document.createElement("div");
   row.className = "card"; row.id = lineId;
-  row.innerHTML = '<label>Item (optional)</label><select class="sale-line-item">'+optionsHtml+'</select>'+
-    '<label>Scan/enter exact lot to override FIFO (optional)</label>'+
-    '<div class="row"><input class="sale-line-lot" placeholder="LOT-000001"><button type="button" class="secondary btn-sm" onclick="scanAndFill(\''+lineId+'-lotfield\',\'lot\')" style="flex:0 0 90px;">📷 Scan</button></div>'+
+  row.innerHTML = '<label>Item (optional)</label><select class="sale-line-item" onchange="loadSaleLineLots(\''+lineId+'\')">'+optionsHtml+'</select>'+
+    '<label>Lot (optional — leave blank to use FIFO automatically)</label><select class="sale-line-lot"><option value="">-- FIFO (oldest first) --</option></select>'+
     '<div class="row"><div><label>Quantity</label><input class="sale-line-qty" type="number" step="1" value="'+(prefill&&prefill.quantity?prefill.quantity:1)+'"></div><div><label>Sale price (Rs, pre-tax)</label><input class="sale-line-price" type="number" step="0.01" value="'+(prefill&&prefill.sale_price?prefill.sale_price:"")+'"></div></div>'+
     '<label>Tax %</label><input class="sale-line-tax" type="number" step="0.1" value="'+(prefill&&prefill.tax_rate?prefill.tax_rate:0)+'">'+
     '<label>Description</label><input class="sale-line-desc" value="'+(prefill&&prefill.description?prefill.description:"")+'">'+
     '<button type="button" class="secondary btn-sm" onclick="document.getElementById(\''+lineId+'\').remove()">Remove line</button>';
   document.getElementById("s-lines").appendChild(row);
-  row.querySelector(".sale-line-lot").id = lineId+"-lotfield";
+  if(prefill && prefill.item_id) await loadSaleLineLots(lineId);
+}
+async function loadSaleLineLots(lineId){
+  const row = document.getElementById(lineId);
+  const itemId = row.querySelector(".sale-line-item").value;
+  const lotSelect = row.querySelector(".sale-line-lot");
+  if(!itemId){ lotSelect.innerHTML = '<option value="">-- FIFO (oldest first) --</option>'; return; }
+  try{
+    const item = await apiFetch("/items/"+itemId);
+    lotSelect.innerHTML = '<option value="">-- FIFO (oldest first) --</option>'+
+      item.lots_by_site.map(function(l){return '<option value="'+l.id+'">'+l.id+' — '+l.site_name+' ('+l.quantity_balance+' available)</option>';}).join("");
+  }catch(e){showError(e.message);}
 }
 let prefillFulfillsCOId = null;
 async function billCOViaSales(coId){
@@ -1923,13 +1962,27 @@ async function loadParties(){
 }
 
 // ---------------- Users ----------------
-function toggleWorkerSiteOption(){ document.getElementById("u-worker-site-wrap").style.display = document.getElementById("u-role").value==="worker"?"block":"none"; }
+async function toggleWorkerSiteOption(){
+  const role = document.getElementById("u-role").value;
+  document.getElementById("u-worker-site-wrap").style.display = role==="worker"?"block":"none";
+  const resellerWrap = document.getElementById("u-reseller-wrap");
+  resellerWrap.style.display = role==="reseller"?"block":"none";
+  if(role==="reseller"){
+    const parties = await apiFetch("/parties");
+    const resellers = parties.filter(function(p){return p.type==="reseller";});
+    document.getElementById("u-reseller-select").innerHTML = resellers.length
+      ? resellers.map(function(p){return '<option value="'+p.id+'">'+p.name+'</option>';}).join("")
+      : '<option value="">-- no resellers exist yet, add one in Parties first --</option>';
+  }
+}
 async function createUser(){
   try{
     const role=document.getElementById("u-role").value;
+    if(role==="reseller" && !document.getElementById("u-reseller-select").value){ alert("Select which reseller this login belongs to"); return; }
     const res=await apiFetch("/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       name:document.getElementById("u-name").value.trim(), username:document.getElementById("u-username").value.trim(),
-      pin:document.getElementById("u-pin").value.trim(), role:role, create_worker_site: role==="worker" && document.getElementById("u-create-site").checked })});
+      pin:document.getElementById("u-pin").value.trim(), role:role, create_worker_site: role==="worker" && document.getElementById("u-create-site").checked,
+      reseller_party_id: role==="reseller" ? document.getElementById("u-reseller-select").value : null })});
     document.getElementById("user-result").innerHTML='<p style="color:var(--ok);">Created login'+(res.site_id?' with site '+res.site_id:'')+'</p>';
     document.getElementById("u-name").value="";
     document.getElementById("u-username").value="";

@@ -1,4 +1,5 @@
 import { postJournalEntry, getOrCreatePartyAccount, accountFixedId, nextId } from "./_ledger.js";
+import { createDispatch } from "./_dispatch.js";
 
 async function consumeStock(env, itemId, quantity, forceLotId) {
   if (forceLotId) {
@@ -60,6 +61,7 @@ export async function createSale(env, { lines, customer_party_id, customer_name,
 
   let grandTotal = 0;
   const lineResults = [];
+  const allConsumedForDispatch = []; // {item_id, lot_id, quantity} across every line, for the shipment dispatch below
 
   for (const line of lines) {
     const qty = line.quantity || 1;
@@ -79,6 +81,7 @@ export async function createSale(env, { lines, customer_party_id, customer_name,
     for (const c of consumedLots) {
       await env.DB.prepare("INSERT INTO item_movements (lot_id, item_id, event_type, from_site_id, quantity, notes, created_by) VALUES (?, ?, 'consumed', ?, ?, ?, ?)")
         .bind(c.lot_id, line.item_id, c.site_id, c.quantity, `Sold via ${id}`, created_by || "system").run();
+      allConsumedForDispatch.push({ item_id: line.item_id, lot_id: c.lot_id, site_id: c.site_id, quantity: c.quantity });
     }
     lineResults.push({ tax_amount: taxAmount, line_total: lineTotal });
   }
@@ -97,9 +100,18 @@ export async function createSale(env, { lines, customer_party_id, customer_name,
 
   await postJournalEntry(env, { date: effectiveDate, description: notes || `Sale ${id}`, reference_type: "sale", reference_id: id, created_by, lines: jeLines });
 
+  let shipmentDispatchId = null;
   if (fulfills_customer_order_id) {
     await env.DB.prepare("UPDATE customer_orders SET status = 'billed', sale_id = ?, updated_at = datetime('now') WHERE id = ?").bind(id, fulfills_customer_order_id).run();
+
+    if (allConsumedForDispatch.length) {
+      shipmentDispatchId = await createDispatch(env, {
+        dispatch_type: "customer_shipment", from_site_id: allConsumedForDispatch[0].site_id, to_site_id: null,
+        items: allConsumedForDispatch.map((c) => ({ item_id: c.item_id, lot_id: c.lot_id, expected_quantity: c.quantity })),
+        related_customer_order_id: fulfills_customer_order_id,
+      });
+    }
   }
 
-  return { id, total_amount: grandTotal, lines: lineResults };
+  return { id, total_amount: grandTotal, lines: lineResults, shipment_dispatch_id: shipmentDispatchId };
 }

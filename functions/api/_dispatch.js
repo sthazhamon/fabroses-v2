@@ -36,7 +36,10 @@ export async function shipDispatch(env, dispatchId, { courier, tracking_id }, ac
   if (items.some((i) => i.scanned_quantity === null)) return { error: "Every item must be picked/confirmed before shipping" };
 
   for (const item of items) {
-    if (item.lot_id) {
+    // Customer shipments already had their stock decremented at the moment
+    // of billing — this dispatch exists for pick/scan verification and
+    // shipment tracking only, not a second inventory movement.
+    if (item.lot_id && dispatch.dispatch_type !== "customer_shipment") {
       await env.DB.prepare("UPDATE item_lots SET quantity_balance = quantity_balance - ? WHERE id = ?").bind(item.scanned_quantity, item.lot_id).run();
     }
     await env.DB.prepare(
@@ -47,6 +50,13 @@ export async function shipDispatch(env, dispatchId, { courier, tracking_id }, ac
 
   await env.DB.prepare("UPDATE dispatches SET status = 'shipped', courier = ?, tracking_id = ?, shipped_at = datetime('now') WHERE id = ?")
     .bind(courier || null, tracking_id || null, dispatchId).run();
+
+  // A customer shipment ends here — there's no internal party on the other
+  // end to confirm receipt, so shipping IS the final step, not a halfway point.
+  if (dispatch.dispatch_type === "customer_shipment" && dispatch.related_customer_order_id) {
+    await env.DB.prepare("UPDATE customer_orders SET status = 'shipped', courier = ?, tracking_id = ?, dispatch_date = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+      .bind(courier || null, tracking_id || null, dispatch.related_customer_order_id).run();
+  }
 
   if (dispatch.related_work_order_id && dispatch.dispatch_type === "return_shipment") {
     await env.DB.prepare("UPDATE work_orders SET stage = 'Work Shipped', updated_at = datetime('now') WHERE id = ?").bind(dispatch.related_work_order_id).run();
@@ -60,6 +70,7 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
   const dispatch = await env.DB.prepare("SELECT * FROM dispatches WHERE id = ?").bind(dispatchId).first();
   if (!dispatch) return { error: "Dispatch not found" };
   if (dispatch.status !== "shipped") return { error: "This dispatch hasn't been shipped yet — nothing to receive" };
+  if (dispatch.dispatch_type === "customer_shipment") return { error: "Customer shipments finish at the ship step — there's no separate receipt to confirm here." };
 
   const laborCost = (extra && extra.labor_cost) || 0;
   let workOrderClosed = false;

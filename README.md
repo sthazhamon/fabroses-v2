@@ -1,140 +1,93 @@
-# FabRoses Business System — v3, this session's build
+# FabRoses Business System — this session's build
 
-**248 automated tests, all passing.** Run `npm test` to verify yourself
+**280 automated tests, all passing.** Run `npm test` to verify yourself
 before trusting this with real data.
 
-This session worked through a long list of real, reported problems one at
-a time, then built them in order: photo visibility, Sales Return as its
-own action, Customer Order billing routed through the real Sales form,
-a worker-initiated raw material return, BOM-based reconciliation folded
-into confirming a finished good, and a scan-to-verify gate before work can
-start. Below is what actually changed, followed by two real bugs this
-session's own testing caught and fixed along the way — worth reading, not
-just the feature list.
+This session restructured how the Dispatch/Store role works, and rebuilt
+Customer Order shipping to go through a real, verifiable two-step
+dispatch instead of a shortcut. Below is what actually changed, in the
+order it was built, followed by two things worth reading carefully: a
+real double-decrement risk this session had to design around, and a
+genuine gap found in the pick step that had been sitting unnoticed.
 
-## Work order and material flow
+## A quick note on recovery
 
-- **WIP photos are now actually viewable.** They were always being saved
-  correctly — the display only ever showed a count. Real thumbnails with
-  click-to-enlarge now appear in both the admin and worker views.
-- **The "Start Work" gate is now consistent everywhere**, and it does more
-  than it used to: before a worker can start, they scan or enter the item
-  and lot for *every* raw material line issued on that job. Get it wrong,
-  and they see exactly that — wrong material for this job — not a generic
-  error. Get it right on every line, and only then does "Start Work"
-  appear. A rework job with nothing to verify is never blocked.
-- **BOM-based reconciliation is now folded into confirming a finished
-  good.** When the store confirms a finished piece back, it now sees, for
-  every raw material issued on that job: how much was issued, how much
-  the BOM says should have been used, and a suggested return-to-stock
-  figure — editable, not forced. Confirming the finished good and
-  reconciling the raw material happen in one action, not two separate
-  visits to two different screens.
-- **Work orders now show the finished item's part number**, not just its
-  name, and the "Material issued" table now shows which specific lot was
-  used — the data was already being captured, it just was never displayed.
+Partway through this session, the working environment reset and the
+in-progress project was lost. It was recovered from the last delivered
+zip and the full test suite was re-verified clean (244/244) before any
+new work began, so everything below builds on a confirmed foundation.
 
-## Sales and billing
+## The Dispatch/Store role is now genuinely restricted
 
-- **Sales Return is now its own action**, completely independent of
-  Refund. Returning an item creates a new lot (never silently merged into
-  the one it was originally sold from), moves no money, and is capped
-  precisely by what was actually sold on that line — you can't return more
-  than you sold, and can't return the same units twice.
-- **Customer Order billing now goes through the real Sales form**, not a
-  locked-down shortcut. A "Bill via Sales" button pre-fills the order's
-  lines into Sales, with full control over tax and pricing, and a visible
-  "This fulfills CO-XXXX" toggle — on by default, but you can turn it off
-  if this particular sale shouldn't close out that order. The old
-  shortcut endpoint is gone; every existing test that used it now goes
-  through the real path instead.
-- **Supplier Bills no longer requires a PO line to be fully received
-  before it can be billed** — a real, confirmed bug. Billing now works
-  correctly against whatever's actually been received and not yet billed,
-  computed from genuine billing history rather than a status flag that
-  billing never actually updated.
-- **The outstanding-bills screen no longer shows "undefined"** — a
-  genuine regression from when Sales became multi-line — and the
-  confusing amount field that looked like an inert "Apply" button is now
-  clearly labeled for what it actually is.
+Previously "Dispatch" had access to Catalogue, Sites, Purchase Orders,
+Work Orders, Customer Orders, and Sales. It's now trimmed to exactly
+Sites, Dispatch, and Receive, enforced in the backend middleware, not
+just hidden from the nav. A dedicated test proves this with real signed
+tokens: Sales and Customer Orders now return a genuine 403, while Sites,
+Dispatch, Receive, and PO receiving still work correctly.
 
-## Two real bugs this session's own tests caught — worth reading in full
+This meant two capabilities had to be rebuilt so the role could still do
+its job:
 
-**Reconciling a material issue was silently creating stock out of thin
-air.** This bug predates this session — it's been sitting in the
-reconciliation logic since it was first built — and it took building the
-new BOM-reconciliation feature, with a test that actually checks total
-stock conservation end-to-end, to catch it. My first attempted fix was
-itself wrong: I decremented the issue's own `lot_id`, which turned out to
-be a stable *reference* to the original store lot for lookup purposes —
-never the worker's actual physical stock. A separate, older test (about a
-lot deliberately split across two workers) caught that mistake immediately
-by failing in a completely different way once I ran the full suite. The
-corrected fix decrements the worker's real stock for that item via FIFO —
-the same pattern already used correctly elsewhere in this exact codebase —
-rather than touching an unrelated lot.
+- Issuing raw material was redesigned entirely: pick the raw material
+  from the job's BOM, then pick a lot from a dropdown showing every lot
+  at either the store or the worker's site with quantity shown, capped to
+  what that lot actually has. A lot already at the worker creates a
+  direct issue with no pointless self-dispatch; a store lot still creates
+  a real dispatch as before.
+- Customer Order shipping is now a real two-step dispatch, not a direct
+  status flip. Billing (choosing a lot from a dropdown) auto-creates a
+  real customer_shipment dispatch. The Dispatch role never touches Sales
+  or Customer Orders directly; the shipment just appears in their queue.
+  The old shortcut endpoint is deleted, not just unused.
 
-**The reconciliation model had no way to say "this was simply used up as
-intended."** It could only understand explicit returns and wastage, which
-meant a job where the raw material was cleanly and fully consumed, with
-nothing left over to report, could never actually close. Fixed with a
-`close_fully` mode, used specifically when reconciliation happens as part
-of confirming a finished good — the point at which a job's material story
-really is complete, whether or not every gram was formally categorized.
+## Two things worth reading in full
 
-Both fixes are proven with tests, and every pre-existing test that
-exercised this code — including the one that first caught the mistake —
-still passes.
+Billing already removes stock from inventory, so shipping must not do it
+again. Building the new dispatch naively would have decremented the same
+lot twice for one sale. Fixed: shipping a customer_shipment dispatch
+specifically skips the stock decrement, since billing already did it. A
+dedicated test checks the exact lot balance at both points to prove this.
 
-## Worker-initiated raw material return
+The pick step wasn't actually verifying anything. It was quietly sending
+the dispatch's own expected item and lot straight back to the
+mismatch-detection endpoint, rather than asking the picker to enter
+anything themselves. The safety check worked correctly, it just never
+had a chance to catch anything. Fixed with real, blank input fields and a
+scan button matching the pattern used elsewhere in this app.
 
-Checked against what was already built: this turned out to already
-exist, fully working, from earlier in this project — a worker can send
-leftover raw material back to the store as a plain stock transfer, not
-tied to any specific job, going through the real two-step dispatch
-process, with FIFO reconciliation against whichever open material issues
-are oldest. Nothing needed to be built here; it was verified and left
-untouched.
+## Smaller confirmed fixes
 
-## Real mistakes caught and fixed along the way, this session
+- Reseller logins can now actually be created. The role existed but
+  nothing collected which reseller party the login belonged to.
+- Purchase Orders can now reference finished goods, not just raw
+  materials, for suppliers who deliver an already-finished product.
+- Confirmed already working, no changes needed: billing a raw material
+  directly, and producing a finished item with no BOM at all.
 
-A malformed variable reference left over from a rename (caught by the
-syntax checker immediately), a wrong assumption about which quantity is
-returnable versus billed, and several test-math errors in my own new
-tests (an incorrect assumption about how `sale_price` is stored, a POST
-response that never claimed to return an ID it was assumed to have) — all
-caught by actually running things rather than assuming they'd work, and
-all fixed before being called done.
+## One interpretive call worth double-checking
+
+Issue Material was kept in Work Orders rather than relocated into
+Receive or Dispatch, reasoning it's an allocation decision best made
+where admin/accountant already work. If that's not the intended
+placement, it's a contained change to move.
 
 ## Testing this yourself
 
 ```
 npm test
 ```
-248 tests across 25 files, including a real end-to-end suite
-(`frontend-integration-test-v2.mjs`) that starts an actual HTTP server and
-drives it with the exact request shapes the frontend itself sends —
-including every new feature from this session.
+280 tests across 28 files, including a real end-to-end suite that starts
+an actual HTTP server and drives it with the exact request shapes the
+frontend sends, including the full billing-to-shipped flow.
 
 ## Deployment
 
-The schema changed again this session (sales returns, verification
-timestamps) — if deploying fresh:
-```
-wrangler d1 delete fabroses-db
-wrangler d1 create fabroses-db
-wrangler d1 execute fabroses-db --file=./schema.sql --remote
-```
-Then bootstrap your admin login and push, same as every time before.
+No schema changes this session, same deploy steps as the last delivery.
 
 ## Honestly still open
 
-- **The item-photo cross-contamination bug** from earlier in this project
-  — still unresolved, still needs the URL comparison originally asked for
-  before it can be diagnosed rather than guessed at.
-- **Whether Customer Order *shipping* itself should become a real
-  two-step dispatch** — raised as a question this session, never
-  explicitly answered before we moved on to other things. Left alone
-  rather than decided unilaterally.
-- The mobile card/bottom-nav layout from the prior session still hasn't
-  been confirmed on an actual phone by a human.
+- The item-photo cross-contamination bug from earlier in this project.
+- The exact placement of Issue Material, flagged above as an assumption.
+- The mobile card/bottom-nav layout still hasn't been confirmed on an
+  actual phone by a human.

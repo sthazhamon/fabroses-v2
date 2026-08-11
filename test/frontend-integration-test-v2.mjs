@@ -125,9 +125,15 @@ async function run() {
       customer_party_id: anu.id, customer_name: "Anu", fulfills_customer_order_id: co.id,
     }));
     assert(billRes.id, "billCOViaSales()'s exact frontend shape (createSale with fulfills_customer_order_id) accepted");
-    await apiFetch("/customer-orders/" + co.id + "/ship", postJSON({ courier: "BlueDart", tracking_id: "" }));
+    assert(billRes.shipment_dispatch_id, "billing correctly auto-created a real shipment dispatch, replacing the old direct shortcut");
+
+    const shipmentDetail = await apiFetch("/dispatches/" + billRes.shipment_dispatch_id);
+    const shipmentItem = shipmentDetail.items[0];
+    await apiFetch("/dispatches/" + billRes.shipment_dispatch_id + "/scan", postJSON({ item_id: shipmentItem.item_id, lot_id: shipmentItem.lot_id, scanned_quantity: shipmentItem.expected_quantity }));
+    await apiFetch("/dispatches/" + billRes.shipment_dispatch_id + "/ship", postJSON({ courier: "BlueDart", tracking_id: "" }));
+
     const coFinal = await apiFetch("/customer-orders/" + co.id);
-    assert(coFinal.status === "shipped", "order correctly moved through billed -> shipped");
+    assert(coFinal.status === "shipped", "order correctly moved through billed -> shipped, now via the real dispatch pick/ship flow");
     await apiFetch("/customer-orders/" + co.id, patchJSON({ tracking_id: "LATE123" }));
 
     section("=== Sales with tax (multi-line shape), Expenses with category, Refunds ===");
