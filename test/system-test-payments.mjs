@@ -86,6 +86,14 @@ async function run() {
   })).json();
   assert(workerPay.unallocated === 0, "worker payment fully allocated against the specific work order");
 
+  section("=== Outstanding bill description no longer shows undefined (the multi-line sales regression) ===");
+  const anu2 = await (await partiesMod.onRequestPost({ request: req({ name: "Susan", type: "customer" }), env })).json();
+  const salesModForDesc = await import("../functions/api/sales.js");
+  await salesModForDesc.onRequestPost({ request: req({ lines: [{ description: "Peacock Applique Saree", sale_price: 2800 }], customer_party_id: anu2.id }), env, data: {} });
+  const outstandingModForDesc = await import("../functions/api/outstanding-bills.js");
+  const descCheck = await (await outstandingModForDesc.onRequestGet({ request: { url: "https://x/api/outstanding-bills?party_id=" + anu2.id + "&direction=receivable" }, env })).json();
+  assert(descCheck.bills[0].description === "Peacock Applique Saree", `description correctly pulled from the sale's line items, not the removed header field (got "${descCheck.bills[0].description}")`);
+
   console.log(`\n${passed} passed, ${failed} failed\n`);
   if (failed > 0) process.exit(1);
 }

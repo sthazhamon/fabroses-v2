@@ -255,6 +255,9 @@
 
     <section class="panel" id="panel-sales">
       <h3>Sales</h3>
+      <div id="s-fulfills-wrap" style="display:none;" class="card">
+        <label><input type="checkbox" id="s-fulfills-checkbox" checked style="width:auto;"> This fulfills <span id="s-fulfills-co-id"></span></label>
+      </div>
       <label>Customer or reseller <button type="button" class="secondary btn-sm" onclick="addPartyInline('customer','s-customer-select')">+new customer</button></label>
       <select id="s-customer-select"><option value="">-- none / cash sale --</option></select>
       <div class="card"><h4 style="margin-top:0;">Line items</h4><div id="s-lines"></div>
@@ -267,6 +270,12 @@
         <label>Amount</label><input id="ref-amount" type="number" step="0.01">
         <label>Reason</label><input id="ref-reason">
         <button class="secondary" onclick="createRefund()">Record refund</button><div id="refund-msg"></div></div>
+      <div class="card"><h4 style="margin-top:0;">Sales Return</h4>
+        <p class="muted">Physically returning an item to stock — independent of any refund.</p>
+        <label>Sale line</label><select id="ret-sale-item-select"></select>
+        <label>Quantity returned</label><input id="ret-qty" type="number" step="0.01">
+        <label>Notes</label><input id="ret-notes">
+        <button class="secondary" onclick="createSalesReturn()">Record return</button><div id="sales-return-msg"></div></div>
       <div class="card"><h4 style="margin-top:0;">Recent sales</h4><div id="sales-list" class="muted">Loading...</div></div>
     </section>
 
@@ -392,8 +401,9 @@ function renderCardList(items, opts){
   if(!items||!items.length) return '<p class="muted">'+(opts.empty||"Nothing here yet.")+'</p>';
   return '<div class="card-list">'+items.map(function(item){
     const clickAttr = opts.onClick ? ' onclick="'+opts.onClick(item)+'" style="cursor:pointer;"' : '';
-    const right = opts.amount ? '<div class="lc-right"><div class="lc-amount">'+opts.amount(item)+'</div>'+(opts.rightSub?'<div class="lc-sub">'+opts.rightSub(item)+'</div>':'')+'</div>'
-      : (opts.action ? '<div class="lc-right">'+opts.action(item)+'</div>' : '');
+    const amountPart = opts.amount ? '<div class="lc-amount">'+opts.amount(item)+'</div>'+(opts.rightSub?'<div class="lc-sub">'+opts.rightSub(item)+'</div>':'') : '';
+    const actionPart = opts.action ? opts.action(item) : '';
+    const right = (amountPart||actionPart) ? '<div class="lc-right">'+amountPart+actionPart+'</div>' : '';
     return '<div class="list-card"'+clickAttr+'>'+
       '<div class="lc-icon">'+(opts.icon?opts.icon(item):"📄")+'</div>'+
       '<div class="lc-body"><p class="lc-title">'+opts.title(item)+'</p><p class="lc-sub">'+(opts.sub?opts.sub(item):"")+'</p></div>'+
@@ -512,7 +522,7 @@ function loadTabData(tabId){
     if(tabId==="dispatch"){ loadDispatchQueue(); loadDispatchHistory(); }
     if(tabId==="receive"){ loadReceiveQueue(); loadReceiveHistory(); }
     if(tabId==="co"){ populatePartyDropdown("co-customer-select","customer"); loadCOs(); }
-    if(tabId==="sales"){ populateCustomerOrResellerDropdown("s-customer-select"); loadSalesForRefund(); loadSales(); }
+    if(tabId==="sales"){ populateCustomerOrResellerDropdown("s-customer-select"); loadSalesForRefund(); loadSalesForReturn(); loadSales(); }
     if(tabId==="purchases"){ populatePartyDropdown("sb-supplier-select","supplier"); loadUnbilledPOs(); loadSupplierBills(); }
     if(tabId==="expenses"){ populateExpenseCategoryDropdown(); loadExpenses(); }
     if(tabId==="receivable") populatePartyDropdown("recv-party","customer",false,true);
@@ -1082,7 +1092,7 @@ async function loadWOs(){
 async function viewWO(id){
   try{
     const w=await apiFetch("/work-orders/"+id);
-    const issueRows=(w.issues||[]).map(function(i){return '<tr><td>'+i.item_name+'</td><td>'+i.quantity_issued+'</td><td>'+i.status+'</td></tr>';}).join("");
+    const issueRows=(w.issues||[]).map(function(i){return '<tr><td>'+i.item_name+'</td><td>'+i.lot_id+'</td><td>'+i.quantity_issued+'</td><td>'+i.status+'</td></tr>';}).join("");
     const canStart = w.stage==="Order Placed" || w.stage==="Material Received";
     const canCancel = !w.closed_at && !w.cancelled_at && w.stage!=="Work Shipped";
     const openRework = (w.rework_issues||[]).filter(function(r){return r.status!=="received";});
@@ -1094,17 +1104,17 @@ async function viewWO(id){
       : (canCancel?'<h4>Send for rework</h4><p class="muted">Lot: '+(w.rework_lot_id||"-")+'</p><button class="secondary" onclick="issueRework(\''+w.id+'\')">Create dispatch</button><div id="wo-rework-issue-msg"></div>':'')
     ) : "";
     document.getElementById("wo-detail").innerHTML='<div class="card"><div class="code-big">'+w.id+'</div>'+
-      '<p>'+w.description+' <span class="muted">('+w.job_type+')</span></p><p>Worker: <b>'+(w.worker_site_name||"")+'</b> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
+      '<p>'+w.description+' <span class="muted">('+w.job_type+')</span></p><p>Item: <b>'+(w.intended_item_name||"")+'</b>'+(w.intended_item_code?' ('+w.intended_item_code+')':'')+'</p><p>Worker: <b>'+(w.worker_site_name||"")+'</b> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
       '<p>Stage: <span class="stage-badge">'+(w.cancelled_at?"Cancelled":w.stage)+'</span>'+(canStart?' <button class="secondary btn-sm" onclick="advanceStage(\''+w.id+'\',\'Work Started\')">Mark Work Started</button>':'')+'</p>'+
       '<p class="muted">Material Received and Work Shipped are set automatically by the dispatch engine, not manually here.</p>'+
       (canCancel?'<button class="secondary btn-sm" onclick="cancelWO(\''+w.id+'\')" style="border-color:var(--warn);color:var(--warn);">Cancel this job</button><p class="muted">Wrong worker assigned? Cancel this and create a fresh work order for the right person — reassigning isn\'t supported, since it would leave material tracking pointing at the wrong site.</p><div id="wo-cancel-msg"></div>':'')+
       reworkSection+
-      (issueRows?'<h4>Material issued</h4><table><tr><th>Item</th><th>Qty</th><th>Status</th></tr>'+issueRows+'</table>':'')+
+      (issueRows?'<h4>Material issued</h4><table><tr><th>Item</th><th>Lot</th><th>Qty</th><th>Status</th></tr>'+issueRows+'</table>':'')+
       (canCancel && w.job_type==="production"?'<h4>Issue material (creates a pending dispatch)</h4><label>Lot ID</label><div class="row"><input id="wo-issue-lot" placeholder="LOT-000001"><button type="button" class="secondary btn-sm" onclick="scanAndFill(\'wo-issue-lot\',\'lot\')" style="flex:0 0 90px;">📷 Scan</button></div>'+
       '<label>Quantity</label><input id="wo-issue-qty" type="number" step="0.1">'+
       '<button class="secondary" onclick="issueMaterial(\''+w.id+'\')">Create dispatch</button><div id="wo-issue-msg"></div>':'')+
       '<p class="muted">Receiving the finished good back now happens through the Dispatch/Receive tabs, once the worker ships it — see the Receive tab.</p>'+
-      (w.photos&&w.photos.length?'<p class="muted">'+w.photos.length+' work-in-progress photo(s) on file.</p>':'')+
+      (w.photos&&w.photos.length?'<p class="muted">'+w.photos.length+' work-in-progress photo(s):</p><div>'+w.photos.map(function(p){return '<img src="/api/photo/'+p.r2_key+'" onclick="viewFullPhoto(\''+p.r2_key+'\')" style="width:64px;height:64px;object-fit:cover;border-radius:6px;margin:3px;cursor:zoom-in;">';}).join("")+'</div>':'')+
       '</div>';
   }catch(e){showError(e.message);}
 }
@@ -1162,14 +1172,31 @@ async function loadMyWork(){
     });
     const stockHtml = renderCardList(wp.own_stock, {
       icon: function(){return "📋";}, title: function(l){return l.item_name;}, sub: function(l){return l.id;},
-      amount: function(l){return l.quantity_balance;}, empty: "None.",
+      amount: function(l){return l.quantity_balance;},
+      action: function(l){return '<button class="secondary btn-sm" onclick="openReturnMaterialForm(\''+l.id+'\',\''+l.item_id+'\',\''+l.quantity_balance+'\')">Return</button>';}, empty: "None.",
     });
     document.getElementById("mywork-content").innerHTML =
       '<h4>Material waiting for me to confirm ('+wp.incoming_to_confirm.length+')</h4>'+incomingHtml+
       '<h4>My pending jobs ('+wp.pending_orders.length+')</h4>'+orderHtml+
       '<h4>My outgoing to pick/ship ('+wp.outgoing_to_ship.length+')</h4>'+outgoingHtml+
-      '<h4>My own stock</h4>'+stockHtml;
+      '<h4>My own stock</h4>'+stockHtml+'<div id="return-material-form"></div>';
   }catch(e){document.getElementById("mywork-content").textContent=e.message;}
+}
+function openReturnMaterialForm(lotId, itemId, maxQty){
+  document.getElementById("return-material-form").innerHTML = '<div class="card"><h4 style="margin-top:0;">Return leftover material</h4>'+
+    '<p class="muted">Lot: '+lotId+' (up to '+maxQty+' available)</p>'+
+    '<label>Quantity to send back</label><input id="rm-qty" type="number" step="0.01" max="'+maxQty+'">'+
+    '<button class="secondary" onclick="submitReturnMaterial(\''+lotId+'\')">Send to store</button><div id="rm-msg"></div></div>';
+  document.getElementById("return-material-form").scrollIntoView({behavior:"smooth"});
+}
+async function submitReturnMaterial(lotId){
+  try{
+    const s = getSession();
+    const quantity = parseFloat(document.getElementById("rm-qty").value);
+    const res = await apiFetch("/return-material",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({from_site_id:s.siteId,lot_id:lotId,quantity:quantity})});
+    document.getElementById("rm-msg").innerHTML='<p style="color:var(--ok);">Dispatch '+res.dispatch_id+' created — go to Dispatch to pick and send it.</p>';
+    loadMyWork();
+  }catch(e){showError(e.message);}
 }
 async function confirmMyIncoming(dispatchId){
   try{
@@ -1206,20 +1233,38 @@ async function shipMyOutgoing(dispatchId){
 async function viewMyWorkOrder(id){
   try{
     const w = await apiFetch("/work-orders/"+id);
+    const photoThumbs = (w.photos||[]).map(function(p){return '<img src="/api/photo/'+p.r2_key+'" onclick="viewFullPhoto(\''+p.r2_key+'\')" style="width:64px;height:64px;object-fit:cover;border-radius:6px;margin:3px;cursor:zoom-in;">';}).join("");
+    const photoSection = (w.photos&&w.photos.length) ? '<p class="muted">'+w.photos.length+' photo(s):</p><div>'+photoThumbs+'</div>' : '';
+    const itemLine = '<p>Item: <b>'+(w.intended_item_name||"")+'</b>'+(w.intended_item_code?' ('+w.intended_item_code+')':'')+'</p>';
     const isDone = w.stage==="Work Shipped" || w.closed_at;
     if(isDone){
-      document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+w.id+'</div><p>'+w.description+'</p>'+
+      document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+w.id+'</div><p>'+w.description+'</p>'+itemLine+
         '<p>Stage: <span class="stage-badge">'+w.stage+'</span> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
         '<p class="muted">This job has already been shipped back — nothing left to do here. It\'s now waiting on the store to confirm receipt.</p>'+
-        (w.photos&&w.photos.length?'<p class="muted">'+w.photos.length+' work-in-progress photo(s) on file.</p>':'')+'</div>';
+        photoSection+'</div>';
       return;
     }
-    document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+w.id+'</div><p>'+w.description+'</p>'+
+    const openIssues = (w.issues||[]).filter(function(i){return i.status!=="received";});
+    const allVerified = openIssues.every(function(i){return i.verified_at;});
+    const canStartStage = w.stage==="Order Placed"||w.stage==="Material Received";
+    let materialCheckSection = "";
+    if(canStartStage && openIssues.length){
+      materialCheckSection = '<h4>Verify your raw material before starting</h4>'+
+        openIssues.map(function(i){return '<div class="row" style="margin:6px 0;align-items:center;">'+
+          '<span style="flex:1;">'+i.item_name+' — '+i.quantity_issued+(i.verified_at?' <b style="color:var(--ok);">✓ verified</b>':'')+'</span>'+
+          (i.verified_at?'':'<input id="verify-item-'+i.id+'" placeholder="Item ID" style="flex:1;">'+
+            '<input id="verify-lot-'+i.id+'" placeholder="Lot ID" style="flex:1;">'+
+            '<button type="button" class="secondary btn-sm" onclick="scanAndFillVerify(\''+i.id+'\')">📷</button>'+
+            '<button type="button" class="secondary btn-sm" onclick="verifyMaterialIssue(\''+i.id+'\',\''+w.id+'\')">Verify</button>')+
+          '</div><div id="verify-msg-'+i.id+'"></div>';}).join("");
+    }
+    document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+w.id+'</div><p>'+w.description+'</p>'+itemLine+
       '<p>Stage: <span class="stage-badge">'+w.stage+'</span> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
-      (w.stage==="Material Received"?'<button class="secondary" onclick="startMyWork(\''+w.id+'\')">Start work</button><div id="mywork-start-msg"></div>':'')+
+      materialCheckSection+
+      (canStartStage && allVerified?'<button class="secondary" onclick="startMyWork(\''+w.id+'\')">Start work</button><div id="mywork-start-msg"></div>':'')+
       '<h4>Add a work-in-progress photo</h4><input type="file" accept="image/*" id="mywork-photo">'+
       '<button class="secondary" onclick="uploadMyWIPPhoto(\''+w.id+'\')">Upload</button><div id="mywork-photo-msg"></div>'+
-      (w.photos&&w.photos.length?'<p class="muted">'+w.photos.length+' photo(s) added so far.</p>':'')+
+      photoSection+
       '<h4>Ship the finished piece back</h4>'+
       (w.intended_item_id?'<p class="muted">Item: '+(w.intended_item_name||w.intended_item_id)+'</p>':
         '<label>Existing item ID (or leave blank)</label><input id="mywork-ship-item">'+
@@ -1231,6 +1276,25 @@ async function viewMyWorkOrder(id){
 async function startMyWork(id){
   try{ await apiFetch("/work-orders/"+id+"/stage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({stage:"Work Started",changed_by:getSession().name})});
     document.getElementById("mywork-start-msg").innerHTML='<p style="color:var(--ok);">Started.</p>'; viewMyWorkOrder(id); }catch(e){showError(e.message);}
+}
+async function scanAndFillVerify(issueId){
+  openScanner(async function(decoded){
+    const parts = decoded.split("|");
+    let itemId = parts[0];
+    if(itemId && !itemId.startsWith("ITM-")){
+      try{ const matches = await apiFetch("/items"); const found = matches.find(function(i){return i.item_code===itemId;}); if(found) itemId = found.id; }catch(e){}
+    }
+    document.getElementById("verify-item-"+issueId).value = itemId||"";
+    if(parts[1]) document.getElementById("verify-lot-"+issueId).value = parts[1];
+  });
+}
+async function verifyMaterialIssue(issueId, woId){
+  try{
+    const item_id = document.getElementById("verify-item-"+issueId).value.trim();
+    const lot_id = document.getElementById("verify-lot-"+issueId).value.trim();
+    await apiFetch("/material-issues/"+issueId+"/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item_id:item_id,lot_id:lot_id})});
+    viewMyWorkOrder(woId);
+  }catch(e){ document.getElementById("verify-msg-"+issueId).innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
 async function uploadMyWIPPhoto(id){
   const f=document.getElementById("mywork-photo").files[0]; if(!f){alert("Choose a file");return;}
@@ -1372,9 +1436,22 @@ async function openReceiveConfirm(dispatchId){
     const d = await apiFetch("/dispatches/"+dispatchId);
     const rows = d.items.map(function(it){return '<tr><td>'+it.item_name+'</td><td>'+it.scanned_quantity+'</td><td><input id="recv-qty-'+it.id+'" type="number" step="0.1" value="'+it.scanned_quantity+'" style="width:80px;"></td></tr>';}).join("");
     const isReturnShipment = d.dispatch_type==="return_shipment";
+    let reconHtml = "";
+    if(isReturnShipment && d.items.length){
+      const totalQty = d.items.reduce(function(s,it){return s+it.scanned_quantity;},0);
+      const preview = await apiFetch("/dispatches/"+dispatchId+"/reconciliation-preview?confirmed_quantity="+totalQty);
+      if(preview.lines && preview.lines.length){
+        reconHtml = '<h4>Raw material used on this job</h4><p class="muted">Suggested from the BOM — edit if the real amounts were different.</p>'+
+          preview.lines.map(function(l){return '<div class="row" style="margin:6px 0;"><span style="flex:2;">'+l.item_name+' (issued '+l.quantity_issued+')</span>'+
+            '<div style="flex:1;"><label class="muted" style="font-size:0.68rem;">Returned</label><input id="recon-ret-'+l.material_issue_id+'" type="number" step="0.01" value="'+l.suggested_quantity_returned_stock+'"></div>'+
+            '<div style="flex:1;"><label class="muted" style="font-size:0.68rem;">Wasted</label><input id="recon-waste-'+l.material_issue_id+'" type="number" step="0.01" value="0"></div></div>';}).join("")+
+          '<input type="hidden" id="recon-issue-ids" value="'+preview.lines.map(function(l){return l.material_issue_id;}).join(",")+'">';
+      }
+    }
     document.getElementById("receive-confirm-area").innerHTML = '<div class="card"><h4 style="margin-top:0;">Confirm '+d.id+'</h4>'+
       '<table><tr><th>Item</th><th>Shipped</th><th>Actually received</th></tr>'+rows+'</table>'+
       (isReturnShipment?'<label>Labor cost for this job</label><input id="recv-labor-cost" type="number" step="0.01">':'')+
+      reconHtml+
       '<button class="secondary" onclick="submitReceiveConfirm(\''+d.id+'\')">Confirm</button><div id="recv-confirm-msg"></div></div>';
     window.__pendingDispatchItems = d.items;
   }catch(e){showError(e.message);}
@@ -1383,8 +1460,15 @@ async function submitReceiveConfirm(dispatchId){
   try{
     const confirmations = window.__pendingDispatchItems.map(function(it){return {dispatch_item_id:it.id, received_quantity: parseFloat(document.getElementById("recv-qty-"+it.id).value)};});
     const laborField = document.getElementById("recv-labor-cost");
-    const res = await apiFetch("/dispatches/"+dispatchId+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirmations:confirmations, labor_cost: laborField?parseFloat(laborField.value)||0:0})});
-    document.getElementById("recv-confirm-msg").innerHTML='<p style="color:var(--ok);">Confirmed — stock now credited.'+(res.work_order_closed?' Work order closed.':'')+'</p>';
+    const issueIdsField = document.getElementById("recon-issue-ids");
+    const material_reconciliation = issueIdsField ? issueIdsField.value.split(",").filter(Boolean).map(function(issueId){return {
+      material_issue_id: issueId,
+      quantity_returned_stock: parseFloat(document.getElementById("recon-ret-"+issueId).value)||0,
+      quantity_wasted: parseFloat(document.getElementById("recon-waste-"+issueId).value)||0,
+    };}) : [];
+    const res = await apiFetch("/dispatches/"+dispatchId+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirmations:confirmations, labor_cost: laborField?parseFloat(laborField.value)||0:0, material_reconciliation: material_reconciliation})});
+    const reconMsg = (res.material_reconciliation_results||[]).length ? " Raw material also reconciled." : "";
+    document.getElementById("recv-confirm-msg").innerHTML='<p style="color:var(--ok);">Confirmed — stock now credited.'+(res.work_order_closed?' Work order closed.':'')+reconMsg+'</p>';
     loadReceiveQueue(); loadReceiveHistory();
   }catch(e){showError(e.message);}
 }
@@ -1484,14 +1568,13 @@ async function viewCO(id){
         cell += '<td>-</td>';
       }
       if(line.open_work_orders_for_item && line.open_work_orders_for_item.length) cell += '<td>'+line.open_work_orders_for_item.map(function(w){return w.id;}).join(", ")+'</td>'; else cell += '<td>-</td>';
-      if(!["billed","shipped","cancelled"].includes(o.status)) cell += '<td><input id="co-price-'+line.id+'" type="number" step="0.01" placeholder="Price" style="width:90px;"></td>';
       cell += '</tr>';
       return cell;
     }).join("");
-    html += '<table><tr><th>Item</th><th>Qty</th><th>Stock</th><th>Work Order</th><th>Open WOs</th>'+(!["billed","shipped","cancelled"].includes(o.status)?'<th>Price</th>':'')+'</tr>'+itemRows+'</table>';
+    html += '<table><tr><th>Item</th><th>Qty</th><th>Stock</th><th>Work Order</th><th>Open WOs</th></tr>'+itemRows+'</table>';
     if(o.sale) html+='<p>Sale: '+o.sale.id+' — Rs '+o.sale.total_amount+'</p>';
     if(!["billed","shipped","cancelled"].includes(o.status)){
-      html += '<button class="secondary" onclick="billCO(\''+o.id+'\')">Bill all lines</button><div id="co-bill-msg"></div>';
+      html += '<button class="secondary" onclick="billCOViaSales(\''+o.id+'\')">Bill via Sales</button><p class="muted">Opens the Sales tab, pre-filled with this order\'s lines — full control over tax and pricing there.</p>';
     }
     if(o.status==="billed"){
       html+='<label>Courier</label><input id="co-ship-courier"><label>Tracking (optional)</label><input id="co-ship-tracking">'+
@@ -1504,18 +1587,6 @@ async function viewCO(id){
     }
     html+='</div>';
     document.getElementById("co-detail").innerHTML=html;
-    window.__currentCOItems = o.items;
-  }catch(e){showError(e.message);}
-}
-async function billCO(id){
-  try{
-    const line_prices = {};
-    for(const line of window.__currentCOItems){
-      const priceField = document.getElementById("co-price-"+line.id);
-      if(priceField) line_prices[line.id] = { sale_price: parseFloat(priceField.value) };
-    }
-    await apiFetch("/customer-orders/"+id+"/bill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({line_prices:line_prices})});
-    document.getElementById("co-bill-msg").innerHTML='<p style="color:var(--ok);">Billed.</p>'; viewCO(id); loadCOs();
   }catch(e){showError(e.message);}
 }
 async function shipCO(id){
@@ -1533,22 +1604,41 @@ async function updateCOTracking(id){
 
 // ---------------- Sales / Refunds ----------------
 let saleLineCount = 0;
-async function addSaleLine(){
+async function addSaleLine(prefill){
   saleLineCount++;
   const lineId = "saleline-"+saleLineCount;
   const itemOptions = await apiFetch("/items");
-  const optionsHtml = '<option value="">-- item (optional) --</option>'+itemOptions.map(function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+' - stock:'+i.total_stock+'</option>';}).join("");
+  const optionsHtml = '<option value="">-- item (optional) --</option>'+itemOptions.map(function(i){return '<option value="'+i.id+'"'+(prefill&&prefill.item_id===i.id?" selected":"")+'>'+i.name+(i.item_code?" ("+i.item_code+")":"")+' - stock:'+i.total_stock+'</option>';}).join("");
   const row = document.createElement("div");
   row.className = "card"; row.id = lineId;
   row.innerHTML = '<label>Item (optional)</label><select class="sale-line-item">'+optionsHtml+'</select>'+
     '<label>Scan/enter exact lot to override FIFO (optional)</label>'+
     '<div class="row"><input class="sale-line-lot" placeholder="LOT-000001"><button type="button" class="secondary btn-sm" onclick="scanAndFill(\''+lineId+'-lotfield\',\'lot\')" style="flex:0 0 90px;">📷 Scan</button></div>'+
-    '<div class="row"><div><label>Quantity</label><input class="sale-line-qty" type="number" step="1" value="1"></div><div><label>Sale price (Rs, pre-tax)</label><input class="sale-line-price" type="number" step="0.01"></div></div>'+
-    '<label>Tax %</label><input class="sale-line-tax" type="number" step="0.1" value="0">'+
-    '<label>Description</label><input class="sale-line-desc">'+
+    '<div class="row"><div><label>Quantity</label><input class="sale-line-qty" type="number" step="1" value="'+(prefill&&prefill.quantity?prefill.quantity:1)+'"></div><div><label>Sale price (Rs, pre-tax)</label><input class="sale-line-price" type="number" step="0.01" value="'+(prefill&&prefill.sale_price?prefill.sale_price:"")+'"></div></div>'+
+    '<label>Tax %</label><input class="sale-line-tax" type="number" step="0.1" value="'+(prefill&&prefill.tax_rate?prefill.tax_rate:0)+'">'+
+    '<label>Description</label><input class="sale-line-desc" value="'+(prefill&&prefill.description?prefill.description:"")+'">'+
     '<button type="button" class="secondary btn-sm" onclick="document.getElementById(\''+lineId+'\').remove()">Remove line</button>';
   document.getElementById("s-lines").appendChild(row);
   row.querySelector(".sale-line-lot").id = lineId+"-lotfield";
+}
+let prefillFulfillsCOId = null;
+async function billCOViaSales(coId){
+  try{
+    const order = await apiFetch("/customer-orders/"+coId);
+    switchTab("sales");
+    prefillFulfillsCOId = coId;
+    document.getElementById("s-fulfills-wrap").style.display = "block";
+    document.getElementById("s-fulfills-checkbox").checked = true;
+    document.getElementById("s-fulfills-co-id").textContent = coId;
+    document.getElementById("s-lines").innerHTML = "";
+    for(const line of order.items){
+      await addSaleLine({ item_id: line.item_id, quantity: line.quantity, description: line.item_name||line.description, tax_rate: line.tax_rate });
+    }
+    if(order.customer_party_id){
+      const opt = document.querySelector('#s-customer-select option[value="'+order.customer_party_id+'"]');
+      if(opt) document.getElementById("s-customer-select").value = order.customer_party_id;
+    }
+  }catch(e){showError(e.message);}
 }
 async function createSale(){
   try{
@@ -1565,13 +1655,17 @@ async function createSale(){
       tax_rate: parseFloat(row.querySelector(".sale-line-tax").value)||0,
       description: row.querySelector(".sale-line-desc").value.trim(),
     };});
+    const fulfillsWrap = document.getElementById("s-fulfills-wrap");
+    const shouldFulfill = fulfillsWrap.style.display!=="none" && document.getElementById("s-fulfills-checkbox").checked;
     const res=await apiFetch("/sales",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       lines:lines, customer_party_id:custSel.value||null, customer_name:(custParty&&!isReseller)?custParty.name:null,
-      reseller_name:(custParty&&isReseller)?custParty.name:null })});
-    document.getElementById("sale-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+' — total Rs '+res.total_amount+'</p>';
+      reseller_name:(custParty&&isReseller)?custParty.name:null, fulfills_customer_order_id: shouldFulfill?prefillFulfillsCOId:null })});
+    document.getElementById("sale-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+' — total Rs '+res.total_amount+(shouldFulfill?' — '+prefillFulfillsCOId+' marked billed':'')+'</p>';
     document.getElementById("s-lines").innerHTML="";
     document.getElementById("s-customer-select").value="";
-    loadSales(); loadSalesForRefund();
+    fulfillsWrap.style.display="none";
+    prefillFulfillsCOId = null;
+    loadSales(); loadSalesForRefund(); loadSalesForReturn();
   }catch(e){showError(e.message);}
 }
 async function loadSales(){
@@ -1584,6 +1678,31 @@ async function loadSales(){
 }
 async function loadSalesForRefund(){
   try{ const list=await apiFetch("/sales"); document.getElementById("ref-sale-select").innerHTML = list.map(function(s){return '<option value="'+s.id+'">'+s.id+' - '+s.description+' (Rs '+s.total_amount+')</option>';}).join(""); }catch(e){}
+  await loadSaleLinesForReturn();
+}
+async function loadSaleLinesForReturn(){
+  try{
+    const list = await apiFetch("/sales");
+    const options = [];
+    for(const s of list){
+      (s.lines||[]).forEach(function(line){
+        if(line.item_id) options.push('<option value="'+line.id+'">'+s.id+' — '+line.description+' (qty '+line.quantity+')</option>');
+      });
+    }
+    document.getElementById("ret-sale-item-select").innerHTML = options.length?options.join(""):"<option value=''>-- no returnable lines --</option>";
+  }catch(e){}
+}
+async function createSalesReturn(){
+  try{
+    const sale_item_id = document.getElementById("ret-sale-item-select").value;
+    if(!sale_item_id){ alert("Select a sale line"); return; }
+    const res = await apiFetch("/sale-returns",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      sale_item_id: parseInt(sale_item_id), quantity: parseFloat(document.getElementById("ret-qty").value), notes: document.getElementById("ret-notes").value.trim() })});
+    document.getElementById("sales-return-msg").innerHTML='<p style="color:var(--ok);">Recorded — '+res.remaining_returnable+' still returnable on this line.</p>';
+    document.getElementById("ret-qty").value="";
+    document.getElementById("ret-notes").value="";
+    loadStockBySite();
+  }catch(e){showError(e.message);}
 }
 async function createRefund(){
   try{
@@ -1591,6 +1710,36 @@ async function createRefund(){
     document.getElementById("refund-msg").innerHTML='<p style="color:var(--ok);">Recorded.</p>';
     document.getElementById("ref-amount").value="";
     document.getElementById("ref-reason").value="";
+  }catch(e){showError(e.message);}
+}
+async function loadSalesForReturn(){
+  try{
+    const sales = await apiFetch("/sales");
+    const returns = await apiFetch("/sale-returns");
+    const alreadyByLine = {};
+    returns.forEach(function(r){ alreadyByLine[r.sale_item_id] = (alreadyByLine[r.sale_item_id]||0) + r.quantity; });
+    const options = [];
+    sales.forEach(function(s){
+      (s.lines||[]).forEach(function(l){
+        if(!l.item_id) return;
+        const already = alreadyByLine[l.id]||0;
+        const remaining = l.quantity - already;
+        if(remaining > 0.001) options.push('<option value="'+l.id+'">'+s.id+' — '+l.description+' ('+remaining+' of '+l.quantity+' still returnable)</option>');
+      });
+    });
+    document.getElementById("ret-sale-item-select").innerHTML = options.length?options.join(""):'<option value="">Nothing returnable</option>';
+  }catch(e){showError(e.message);}
+}
+async function createSalesReturn(){
+  try{
+    const sale_item_id = document.getElementById("ret-sale-item-select").value;
+    if(!sale_item_id){ alert("Nothing to return"); return; }
+    const res = await apiFetch("/sale-returns",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      sale_item_id: parseInt(sale_item_id), quantity: parseFloat(document.getElementById("ret-qty").value), notes: document.getElementById("ret-notes").value.trim()||null })});
+    document.getElementById("sales-return-msg").innerHTML='<p style="color:var(--ok);">Returned — new lot '+res.lot_id+' created. '+res.remaining_returnable+' still returnable on this line.</p>';
+    document.getElementById("ret-qty").value="";
+    document.getElementById("ret-notes").value="";
+    loadSalesForReturn();
   }catch(e){showError(e.message);}
 }
 
@@ -1605,9 +1754,10 @@ async function loadUnbilledPOs(){
   const rows = [];
   for(const po of list){
     for(const line of po.items){
-      if(line.quantity_received >= line.quantity_ordered && line.status !== "billed"){
-        rows.push('<label><input type="checkbox" class="sb-line-check" data-line-id="'+line.id+'" data-item-id="'+line.item_id+'" style="width:auto;"> '+
-          po.id+' — '+line.item_name+' ('+line.quantity_received+' received) '+
+      const outstanding = line.quantity_received - (line.quantity_billed||0);
+      if(outstanding > 0.001){
+        rows.push('<label><input type="checkbox" class="sb-line-check" data-line-id="'+line.id+'" data-item-id="'+line.item_id+'" data-outstanding="'+outstanding+'" style="width:auto;"> '+
+          po.id+' — '+line.item_name+' ('+outstanding+' received, not yet billed) '+
           '<input type="number" step="0.01" class="sb-line-rate" data-line-id="'+line.id+'" placeholder="Rate" style="width:90px;display:inline-block;"></label>');
       }
     }
@@ -1626,14 +1776,12 @@ async function createSupplierBill(){
       if(!checked.length){ alert("Select at least one line"); return; }
       lines = checked.map(function(cb){
         const rateInput = document.querySelector('.sb-line-rate[data-line-id="'+cb.dataset.lineId+'"]');
-        return { purchase_order_item_id: cb.dataset.lineId, item_id: cb.dataset.itemId, quantity: null, rate: parseFloat(rateInput.value)||0 };
+        return { purchase_order_item_id: cb.dataset.lineId, item_id: cb.dataset.itemId, quantity: parseFloat(cb.dataset.outstanding), rate: parseFloat(rateInput.value)||0 };
       });
-      // quantity comes from the PO line itself server-side isn't tracked here, so pass the full received qty via a lookup:
       const allPOs = await apiFetch("/purchase-orders");
-      lines = lines.map(function(l){
-        for(const po of allPOs){ const match = po.items.find(function(i){return String(i.id)===String(l.purchase_order_item_id);}); if(match){ purchase_order_id = po.id; l.quantity = match.quantity_received; } }
-        return l;
-      });
+      for(const l of lines){
+        for(const po of allPOs){ if(po.items.some(function(i){return String(i.id)===String(l.purchase_order_item_id);})){ purchase_order_id = po.id; } }
+      }
     } else {
       lines = [{ item_id: document.getElementById("sb-cash-item").value||null, quantity: parseFloat(document.getElementById("sb-cash-qty").value)||1, rate: parseFloat(document.getElementById("sb-cash-rate").value)||0 }];
     }
@@ -1684,7 +1832,7 @@ async function loadOutstandingFor(direction){
     if(!res.bills.length){document.getElementById(areaId).innerHTML="<p class='muted'>Nothing outstanding.</p>";return;}
     const rows = res.bills.map(function(b){return '<div class="list-card"><div class="lc-icon">🧾</div>'+
       '<div class="lc-body"><p class="lc-title">'+b.description+'</p><p class="lc-sub">'+b.bill_id+' · outstanding Rs '+b.outstanding+'</p></div>'+
-      '<div class="lc-right"><input type="number" step="0.01" class="bill-alloc" data-bill-type="'+b.bill_type+'" data-bill-id="'+b.bill_id+'" placeholder="Apply" style="width:80px;"></div></div>';}).join("");
+      '<div class="lc-right"><label style="font-size:0.68rem;color:#8a7278;display:block;margin-bottom:2px;">Amount to apply</label><input type="number" step="0.01" class="bill-alloc" data-bill-type="'+b.bill_type+'" data-bill-id="'+b.bill_id+'" placeholder="0.00" style="width:80px;"></div></div>';}).join("");
     document.getElementById(areaId).innerHTML = '<div class="card-list">'+rows+'</div>';
   }catch(e){showError(e.message);}
 }

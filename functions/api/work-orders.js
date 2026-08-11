@@ -3,7 +3,7 @@ import { fulfillBomLines } from "./_bom.js";
 
 export async function onRequestGet({ env }) {
   const { results } = await env.DB.prepare(
-    `SELECT w.*, s.name AS worker_site_name, i.name AS intended_item_name
+    `SELECT w.*, s.name AS worker_site_name, i.name AS intended_item_name, i.item_code AS intended_item_code
      FROM work_orders w
      LEFT JOIN sites s ON s.id = w.worker_site_id
      LEFT JOIN items i ON i.id = w.intended_item_id

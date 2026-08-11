@@ -10,6 +10,7 @@ const RULES = [
   { prefix: "/api/expenses", roles: ["admin", "accountant"] },
   { prefix: "/api/purchases", roles: ["admin", "accountant"] },
   { prefix: "/api/refunds", roles: ["admin", "accountant"] },
+  { prefix: "/api/sale-returns", roles: ["admin", "accountant"] },
   { prefix: "/api/payments", roles: ["admin", "accountant"] },
   { prefix: "/api/outstanding-bills", roles: ["admin", "accountant"] },
   { prefix: "/api/supplier-bills", roles: ["admin", "accountant"] },

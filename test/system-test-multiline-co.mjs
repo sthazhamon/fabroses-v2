@@ -35,26 +35,28 @@ async function run() {
   const detail = await (await coDetailMod.onRequestGet({ params: { id: co.id }, env })).json();
   assert(detail.items.length === 2 && detail.items[0].current_stock !== null, "both lines present, each showing its own current stock as pure information");
 
-  section("=== Billing ALL lines at once creates one multi-line sale ===");
-  const billMod = await import("../functions/api/customer-orders/[id]/bill.js");
+  section("=== Billing ALL lines at once through the normal Sales path creates one multi-line sale ===");
+  const salesModForBill = await import("../functions/api/sales.js");
   const itemALine = detail.items.find((i) => i.item_id === itemA.id);
   const itemBLine = detail.items.find((i) => i.item_id === itemB.id);
 
-  const missingPrice = await (await billMod.onRequestPost({ request: req({ line_prices: { [itemALine.id]: { sale_price: 5000 } } }), env, params: { id: co.id }, data: {} })).json();
-  assert(missingPrice.error, "billing without a price for EVERY line is rejected, not silently skipped");
-
-  const billRes = await (await billMod.onRequestPost({
-    request: req({ line_prices: { [itemALine.id]: { sale_price: 5000 }, [itemBLine.id]: { sale_price: 800 } } }), env, params: { id: co.id }, data: {},
+  const billRes = await (await salesModForBill.onRequestPost({
+    request: req({
+      lines: [
+        { item_id: itemA.id, quantity: itemALine.quantity, description: "Item A", sale_price: 5000, tax_rate: itemALine.tax_rate },
+        { item_id: itemB.id, quantity: itemBLine.quantity, description: "Item B", sale_price: 800, tax_rate: itemBLine.tax_rate },
+      ],
+      customer_name: "Anu", fulfills_customer_order_id: co.id,
+    }), env, data: {},
   })).json();
-  // Line A: 5000 + 12% = 5600. Line B: 800*2=1600 pretax... wait sale_price is PER LINE not per unit in this design — confirm via actual total.
-  assert(billRes.ok, "billing with a price for every line succeeds");
+  assert(billRes.id, "billing both lines through the normal Sales endpoint succeeds");
 
-  const sale = await env.DB.prepare("SELECT * FROM sales WHERE id = ?").bind(billRes.sale_id).first();
+  const sale = await env.DB.prepare("SELECT * FROM sales WHERE id = ?").bind(billRes.id).first();
   const saleLines = await env.DB.prepare("SELECT * FROM sale_items WHERE sale_id = ?").bind(sale.id).all();
   assert(saleLines.results.length === 2, "the resulting sale has exactly 2 lines, matching the order's 2 lines");
 
   const coAfter = await env.DB.prepare("SELECT * FROM customer_orders WHERE id = ?").bind(co.id).first();
-  assert(coAfter.status === "billed" && coAfter.sale_id === billRes.sale_id, "the customer order correctly links to the resulting multi-line sale");
+  assert(coAfter.status === "billed" && coAfter.sale_id === billRes.id, "the customer order correctly links to the resulting multi-line sale");
 
   const itemAStockAfter = await env.DB.prepare("SELECT COALESCE(SUM(quantity_balance),0) AS t FROM item_lots WHERE item_id = ?").bind(itemA.id).first();
   const itemBStockAfter = await env.DB.prepare("SELECT COALESCE(SUM(quantity_balance),0) AS t FROM item_lots WHERE item_id = ?").bind(itemB.id).first();

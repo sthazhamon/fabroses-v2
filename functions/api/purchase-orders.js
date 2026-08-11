@@ -16,6 +16,10 @@ export async function onRequestGet({ env }) {
     const { results: items } = await env.DB.prepare(
       `SELECT poi.*, i.name AS item_name FROM purchase_order_items poi LEFT JOIN items i ON i.id = poi.item_id WHERE poi.purchase_order_id = ?`
     ).bind(po.id).all();
+    for (const line of items) {
+      const billedRow = await env.DB.prepare("SELECT COALESCE(SUM(quantity),0) AS t FROM supplier_bill_items WHERE purchase_order_item_id = ?").bind(line.id).first();
+      line.quantity_billed = billedRow.t;
+    }
     withItems.push({ ...po, items, status: deriveStatus(items) });
   }
   return Response.json(withItems);

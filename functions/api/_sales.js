@@ -24,8 +24,14 @@ async function consumeStock(env, itemId, quantity, forceLotId) {
 }
 
 // lines: [{ item_id, lot_id, quantity, description, sale_price, tax_rate }]
-export async function createSale(env, { lines, customer_party_id, customer_name, reseller_name, sale_date, notes, created_by }) {
+export async function createSale(env, { lines, customer_party_id, customer_name, reseller_name, sale_date, notes, created_by, fulfills_customer_order_id }) {
   if (!lines || !lines.length) throw { status: 400, error: "At least one line item is required" };
+
+  if (fulfills_customer_order_id) {
+    const order = await env.DB.prepare("SELECT * FROM customer_orders WHERE id = ?").bind(fulfills_customer_order_id).first();
+    if (!order) throw { status: 404, error: "That customer order doesn't exist" };
+    if (["billed", "shipped", "cancelled"].includes(order.status)) throw { status: 400, error: `That customer order is already ${order.status}` };
+  }
 
   // Validate every line BEFORE writing anything — avoids leaving a partial
   // sale behind if, say, line 3 of 4 turns out to be short on stock.
@@ -90,6 +96,10 @@ export async function createSale(env, { lines, customer_party_id, customer_name,
   if (totalTax) jeLines.push({ account_id: await accountFixedId(env, "2200"), credit: totalTax });
 
   await postJournalEntry(env, { date: effectiveDate, description: notes || `Sale ${id}`, reference_type: "sale", reference_id: id, created_by, lines: jeLines });
+
+  if (fulfills_customer_order_id) {
+    await env.DB.prepare("UPDATE customer_orders SET status = 'billed', sale_id = ?, updated_at = datetime('now') WHERE id = ?").bind(id, fulfills_customer_order_id).run();
+  }
 
   return { id, total_amount: grandTotal, lines: lineResults };
 }

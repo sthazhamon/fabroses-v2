@@ -47,8 +47,19 @@ async function run() {
   const blockedAttempt = await (await stageMod.onRequestPost({ request: req({ stage: "Material Received", changed_by: "Zakir" }), env, params: { id: wo.id } })).json();
   assert(blockedAttempt.error, "trying to manually set Material Received directly is rejected — only the dispatch engine sets it");
 
+  const blockedForUnverified = await (await stageMod.onRequestPost({ request: req({ stage: "Work Started", changed_by: "Zakir" }), env, params: { id: wo.id } })).json();
+  assert(blockedForUnverified.error, "starting work is correctly blocked while the raw material hasn't been scan-verified yet");
+
+  const verifyMod = await import("../functions/api/material-issues/[id]/verify.js");
+  const openIssue = await env.DB.prepare("SELECT * FROM material_issues WHERE work_order_id = ?").bind(wo.id).first();
+  const wrongVerify = await (await verifyMod.onRequestPost({ request: req({ item_id: rawItem.id, lot_id: "LOT-999999" }), env, params: { id: openIssue.id } })).json();
+  assert(wrongVerify.error, "verifying against the wrong lot is correctly rejected with a clear error");
+
+  const rightVerify = await (await verifyMod.onRequestPost({ request: req({ item_id: rawItem.id, lot_id: openIssue.lot_id }), env, params: { id: openIssue.id } })).json();
+  assert(rightVerify.ok, "verifying with the correct item and lot succeeds");
+
   const startRes = await (await stageMod.onRequestPost({ request: req({ stage: "Work Started", changed_by: "Zakir" }), env, params: { id: wo.id } })).json();
-  assert(startRes.ok, "Work Started IS manually settable — this is the one real manual step");
+  assert(startRes.ok, "Work Started IS manually settable — this is the one real manual step — now that verification is done");
 
   section("=== Ship back with a mismatch warning (overridable) ===");
   const shipBackMod = await import("../functions/api/work-orders/[id]/ship-back.js");

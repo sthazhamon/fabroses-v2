@@ -3,6 +3,112 @@ async function nextId(env, table, prefix, pad = 6) {
   return `${prefix}-` + String((row?.c || 0) + 1).padStart(pad, "0");
 }
 
+export async function reconcileMaterialIssue(env, issueId, { quantity_returned_stock, quantity_wasted, destination_site_id, notes, close_fully }, actorName) {
+  const returned = quantity_returned_stock || 0;
+  const wasted = quantity_wasted || 0;
+  if (!returned && !wasted && !close_fully) throw { status: 400, error: "Provide at least one of quantity_returned_stock or quantity_wasted" };
+
+  const issue = await env.DB.prepare("SELECT * FROM material_issues WHERE id = ?").bind(issueId).first();
+  if (!issue) throw { status: 404, error: "Material issue not found" };
+  if (issue.status === "received") throw { status: 400, error: "This material issue is already fully reconciled" };
+
+  const alreadyAccounted = issue.quantity_returned_stock + issue.quantity_wasted;
+  const stillOutstandingBefore = issue.quantity_issued - alreadyAccounted;
+  const thisEvent = returned + wasted;
+  if (alreadyAccounted + thisEvent > issue.quantity_issued + 0.001) {
+    throw { status: 400, error: `Only ${stillOutstandingBefore.toFixed(2)} is still unaccounted for on this issue — can't reconcile more than that` };
+  }
+
+  // The issue's own lot_id is a stable reference to the ORIGINAL store lot,
+  // for scan-lookup purposes — it's never the worker's actual physical
+  // stock, which can be split across several lots or shared with other
+  // issues drawing on the same original lot. We only need its item_id here.
+  const refLot = await env.DB.prepare("SELECT item_id FROM item_lots WHERE id = ?").bind(issue.lot_id).first();
+
+  // Decrement the worker's real stock for this item via FIFO — the same
+  // pattern used everywhere else this system moves stock away from a site.
+  const amountLeavingWorkerLot = close_fully ? stillOutstandingBefore : thisEvent;
+  if (amountLeavingWorkerLot > 0 && refLot) {
+    const { results: workerLots } = await env.DB.prepare(
+      "SELECT * FROM item_lots WHERE item_id = ? AND site_id = ? AND quantity_balance > 0 ORDER BY created_at ASC"
+    ).bind(refLot.item_id, issue.worker_site_id).all();
+    const totalAtWorker = workerLots.reduce((s, l) => s + l.quantity_balance, 0);
+    if (totalAtWorker < amountLeavingWorkerLot - 0.001) {
+      throw { status: 400, error: `Only ${totalAtWorker} left at the worker's site for this item — can't reconcile ${amountLeavingWorkerLot} out of it` };
+    }
+    let remaining = amountLeavingWorkerLot;
+    for (const wl of workerLots) {
+      if (remaining <= 0) break;
+      const take = Math.min(wl.quantity_balance, remaining);
+      await env.DB.prepare("UPDATE item_lots SET quantity_balance = quantity_balance - ? WHERE id = ?").bind(take, wl.id).run();
+      remaining -= take;
+    }
+  }
+
+  await env.DB.prepare(
+    "INSERT INTO material_return_events (material_issue_id, quantity_returned_stock, quantity_wasted, destination_site_id, notes, created_by) VALUES (?, ?, ?, ?, ?, ?)"
+  ).bind(issueId, returned, wasted, destination_site_id || null, notes || null, actorName || "unknown").run();
+
+  let newLotId = null;
+  if (returned > 0) {
+    const site = destination_site_id || issue.worker_site_id;
+    newLotId = await nextId(env, "item_lots", "LOT");
+    await env.DB.prepare(
+      `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, notes)
+       VALUES (?, ?, ?, ?, ?, 'transfer_in', ?, ?)`
+    ).bind(newLotId, refLot.item_id, site, returned, returned, issueId, `Returned unused from ${issue.worker_site_id}`).run();
+    await env.DB.prepare(
+      "INSERT INTO item_movements (lot_id, item_id, event_type, to_site_id, quantity, work_order_id, notes, created_by) VALUES (?, ?, 'returned', ?, ?, ?, ?, ?)"
+    ).bind(newLotId, refLot.item_id, site, returned, issue.work_order_id, `Material return on ${issueId}`, actorName || "system").run();
+  }
+
+  const newReturnedTotal = issue.quantity_returned_stock + returned;
+  const newWastedTotal = issue.quantity_wasted + wasted;
+  const fullyReconciled = close_fully || newReturnedTotal + newWastedTotal >= issue.quantity_issued - 0.001;
+
+  await env.DB.prepare(
+    "UPDATE material_issues SET quantity_returned_stock = ?, quantity_wasted = ?, status = ?, received_at = ? WHERE id = ?"
+  ).bind(newReturnedTotal, newWastedTotal, fullyReconciled ? "received" : "partially_returned", fullyReconciled ? new Date().toISOString() : null, issueId).run();
+
+  return {
+    ok: true, lot_id: newLotId, fully_reconciled: fullyReconciled,
+    still_unaccounted: fullyReconciled ? 0 : Math.round((issue.quantity_issued - newReturnedTotal - newWastedTotal) * 100) / 100,
+  };
+}
+
+// BOM-based suggestion for a work order's still-open material issues, given
+// the quantity of finished good about to be confirmed — this is what makes
+// reconciliation possible to fold directly into confirm-receive, rather than
+// a separate step someone has to remember to do later.
+export async function suggestMaterialReconciliation(env, workOrderId, confirmedQuantity) {
+  const order = await env.DB.prepare("SELECT * FROM work_orders WHERE id = ?").bind(workOrderId).first();
+  if (!order) return [];
+
+  const { results: openIssues } = await env.DB.prepare(
+    `SELECT mi.*, i.name AS item_name FROM material_issues mi
+     LEFT JOIN item_lots l ON l.id = mi.lot_id LEFT JOIN items i ON i.id = l.item_id
+     WHERE mi.work_order_id = ? AND mi.status != 'received'`
+  ).bind(workOrderId).all();
+
+  const { results: bomLines } = await env.DB.prepare("SELECT * FROM item_bom WHERE finished_item_id = ?").bind(order.intended_item_id).all();
+  const bomByItem = {};
+  for (const line of bomLines) bomByItem[line.raw_material_item_id] = line.quantity_required;
+
+  const suggestions = [];
+  for (const issue of openIssues) {
+    const lot = await env.DB.prepare("SELECT item_id FROM item_lots WHERE id = ?").bind(issue.lot_id).first();
+    const perUnit = lot ? bomByItem[lot.item_id] : undefined;
+    const stillOpen = issue.quantity_issued - issue.quantity_returned_stock - issue.quantity_wasted;
+    const expectedConsumption = perUnit != null ? perUnit * confirmedQuantity : null;
+    const suggestedReturn = expectedConsumption != null ? Math.max(0, stillOpen - expectedConsumption) : stillOpen;
+    suggestions.push({
+      material_issue_id: issue.id, item_name: issue.item_name, quantity_issued: issue.quantity_issued, still_open: Math.round(stillOpen * 100) / 100,
+      bom_expected_consumption: expectedConsumption != null ? Math.round(expectedConsumption * 100) / 100 : null,
+      suggested_quantity_returned_stock: Math.round(suggestedReturn * 100) / 100,
+    });
+  }
+  return suggestions;
+}
 async function stockAtSite(env, itemId, siteId) {
   const { results } = await env.DB.prepare("SELECT * FROM item_lots WHERE item_id = ? AND site_id = ? AND quantity_balance > 0 ORDER BY created_at ASC").bind(itemId, siteId).all();
   return results;

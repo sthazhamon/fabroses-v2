@@ -1,4 +1,5 @@
 import { nextId } from "./_ledger.js";
+import { reconcileMaterialIssue } from "./_bom.js";
 
 export async function createDispatch(env, { dispatch_type, from_site_id, to_site_id, items, related_work_order_id, related_customer_order_id, related_purchase_order_id }) {
   const id = await nextId(env, "dispatches", "DSP");
@@ -63,6 +64,7 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
   const laborCost = (extra && extra.labor_cost) || 0;
   let workOrderClosed = false;
   let finishedLotId = null;
+  const reconciliationResults = [];
 
   for (const conf of itemConfirmations) {
     const item = await env.DB.prepare("SELECT * FROM dispatch_items WHERE id = ?").bind(conf.dispatch_item_id).first();
@@ -118,6 +120,17 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
           }
         }
       }
+      if (extra && extra.material_reconciliation && extra.material_reconciliation.length) {
+        for (const rec of extra.material_reconciliation) {
+          try {
+            const r = await reconcileMaterialIssue(env, rec.material_issue_id, { ...rec, close_fully: true }, actorName);
+            reconciliationResults.push({ material_issue_id: rec.material_issue_id, ...r });
+          } catch (e) {
+            reconciliationResults.push({ material_issue_id: rec.material_issue_id, error: e.error || e.message });
+          }
+        }
+      }
+
       continue;
     }
 
@@ -148,9 +161,40 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
 
       await env.DB.prepare("UPDATE work_orders SET stage = 'Material Received', updated_at = datetime('now') WHERE id = ?").bind(dispatch.related_work_order_id).run();
       await env.DB.prepare("INSERT INTO stage_log (work_order_id, stage, changed_by) VALUES (?, 'Material Received', ?)").bind(dispatch.related_work_order_id, actorName || "system").run();
+    } else if (dispatch.dispatch_type === "stock_transfer" && !dispatch.related_work_order_id && item.lot_id) {
+      // Generic, worker-initiated return of leftover raw material — not
+      // tied to any one job. The lot the worker actually holds is a
+      // worker-side lot created at confirm-receive time, not the original
+      // store lot material_issues.lot_id points at — so matching has to be
+      // by item + worker site, not an exact lot id, since that original
+      // identity doesn't survive the split. FIFO, oldest first, since
+      // there's no job link telling us which specific issue this closes out.
+      let remaining = conf.received_quantity;
+      const { results: openIssues } = await env.DB.prepare(
+        `SELECT mi.* FROM material_issues mi JOIN item_lots l ON l.id = mi.lot_id
+         WHERE l.item_id = ? AND mi.worker_site_id = ? AND mi.status != 'received' ORDER BY mi.issued_at ASC`
+      ).bind(item.item_id, dispatch.from_site_id).all();
+
+      for (const issue of openIssues) {
+        if (remaining <= 0) break;
+        const stillOutstanding = issue.quantity_issued - issue.quantity_returned_stock - issue.quantity_wasted;
+        if (stillOutstanding <= 0) continue;
+        const applyNow = Math.min(remaining, stillOutstanding);
+
+        await env.DB.prepare(
+          "INSERT INTO material_return_events (material_issue_id, quantity_returned_stock, destination_site_id, notes, created_by) VALUES (?, ?, ?, ?, ?)"
+        ).bind(issue.id, applyNow, dispatch.to_site_id, `Auto-reconciled from worker-initiated return via ${dispatchId}`, actorName || "system").run();
+
+        const newReturnedTotal = issue.quantity_returned_stock + applyNow;
+        const fullyReconciled = newReturnedTotal + issue.quantity_wasted >= issue.quantity_issued - 0.001;
+        await env.DB.prepare("UPDATE material_issues SET quantity_returned_stock = ?, status = ?, received_at = ? WHERE id = ?")
+          .bind(newReturnedTotal, fullyReconciled ? "received" : "partially_returned", fullyReconciled ? new Date().toISOString() : null, issue.id).run();
+
+        remaining -= applyNow;
+      }
     }
   }
 
   await env.DB.prepare("UPDATE dispatches SET status = 'received', received_at = datetime('now') WHERE id = ?").bind(dispatchId).run();
-  return { ok: true, work_order_closed: workOrderClosed, lot_id: finishedLotId };
+  return { ok: true, work_order_closed: workOrderClosed, lot_id: finishedLotId, material_reconciliation_results: reconciliationResults };
 }

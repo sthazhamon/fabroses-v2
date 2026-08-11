@@ -17,7 +17,11 @@ export async function onRequestGet({ request, env }) {
     for (const sale of results) {
       const allocated = await allocatedFor("sale", sale.id);
       const outstanding = Math.round((sale.total_amount - allocated) * 100) / 100;
-      if (outstanding > 0.001) bills.push({ bill_type: "sale", bill_id: sale.id, description: sale.description, total_amount: sale.total_amount, allocated, outstanding, date: sale.sale_date });
+      if (outstanding > 0.001) {
+        const { results: lines } = await env.DB.prepare("SELECT description FROM sale_items WHERE sale_id = ?").bind(sale.id).all();
+        const summary = lines.map((l) => l.description).join(", ") || sale.id;
+        bills.push({ bill_type: "sale", bill_id: sale.id, description: summary, total_amount: sale.total_amount, allocated, outstanding, date: sale.sale_date });
+      }
     }
   } else if (direction === "payable") {
     const { results } = await env.DB.prepare("SELECT * FROM supplier_bills WHERE supplier_party_id = ? ORDER BY bill_date ASC").bind(partyId).all();

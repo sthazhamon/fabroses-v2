@@ -53,6 +53,34 @@ async function run() {
   })).json();
   assert(cashBill.id, "a cash purchase with no PO behind it still works, unaffected by any of the PO-line logic above");
 
+  section("=== A PARTIALLY received line can be billed without waiting for the rest — the exact reported bug ===");
+  const itemC = await (await itemsMod.onRequestPost({ request: req({ item_type: "raw_material", name: "Cotton" }), env })).json();
+  const po2 = await (await poMod.onRequestPost({ request: req({ supplier_name: "Neelam", items: [{ item_id: itemC.id, quantity_ordered: 100, rate: 50 }] }), env })).json();
+  const po2Row = (await (await poMod.onRequestGet({ env })).json()).find((p) => p.id === po2.id);
+  const lineC = po2Row.items[0];
+  await receiveMod.onRequestPost({ request: req({ quantity_received: 30 }), env, params: { id: lineC.id } }); // only 30 of 100 arrived so far
+
+  const partialBill = await (await sbMod.onRequestPost({
+    request: req({ purchase_order_id: po2.id, supplier_name: "Neelam", bill_number: "INV3", lines: [{ purchase_order_item_id: lineC.id, item_id: itemC.id, quantity: 30, rate: 50 }] }), env, data: {},
+  })).json();
+  assert(partialBill.amount === 1500, "billing just the 30 that actually arrived succeeds, without needing all 100 first (30 x 50 = 1500)");
+
+  const po2AfterBill = (await (await poMod.onRequestGet({ env })).json()).find((p) => p.id === po2.id);
+  const lineCAfter = po2AfterBill.items[0];
+  assert(lineCAfter.quantity_billed === 30, `the line correctly shows quantity_billed=30 — real data, not a status flag that never gets set (got ${lineCAfter.quantity_billed})`);
+
+  section("=== And that same line correctly disappears from 'still outstanding' once fully billed ===");
+  await receiveMod.onRequestPost({ request: req({ quantity_received: 70 }), env, params: { id: lineC.id } }); // the rest arrives later
+  const secondPartialBill = await (await sbMod.onRequestPost({
+    request: req({ purchase_order_id: po2.id, supplier_name: "Neelam", bill_number: "INV4", lines: [{ purchase_order_item_id: lineC.id, item_id: itemC.id, quantity: 70, rate: 50 }] }), env, data: {},
+  })).json();
+  assert(secondPartialBill.amount === 3500, "billing the remaining 70 separately works correctly (70 x 50 = 3500)");
+
+  const po2Final = (await (await poMod.onRequestGet({ env })).json()).find((p) => p.id === po2.id);
+  const lineCFinal = po2Final.items[0];
+  assert(lineCFinal.quantity_billed === 100 && lineCFinal.quantity_received === 100,
+    `CRITICAL: quantity_billed correctly reflects BOTH bills summed (30+70=100), matching quantity_received exactly — nothing double-billed, nothing missed (got billed=${lineCFinal.quantity_billed})`);
+
   console.log(`\n${passed} passed, ${failed} failed\n`);
   if (failed > 0) process.exit(1);
 }

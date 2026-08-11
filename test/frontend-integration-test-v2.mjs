@@ -120,8 +120,11 @@ async function run() {
     const coDetail = await apiFetch("/customer-orders/" + co.id);
     assert(coDetail.items[0].current_stock !== undefined, "viewCO()'s expected per-line current_stock field is present");
 
-    const billRes = await apiFetch("/customer-orders/" + co.id + "/bill", postJSON({ line_prices: { [coDetail.items[0].id]: { sale_price: 5000 } } }));
-    assert(billRes.ok, "billCO()'s line_prices shape accepted");
+    const billRes = await apiFetch("/sales", postJSON({
+      lines: [{ item_id: finishedItem.id, quantity: coDetail.items[0].quantity, description: "Fulfilling CO", sale_price: 5000, tax_rate: coDetail.items[0].tax_rate }],
+      customer_party_id: anu.id, customer_name: "Anu", fulfills_customer_order_id: co.id,
+    }));
+    assert(billRes.id, "billCOViaSales()'s exact frontend shape (createSale with fulfills_customer_order_id) accepted");
     await apiFetch("/customer-orders/" + co.id + "/ship", postJSON({ courier: "BlueDart", tracking_id: "" }));
     const coFinal = await apiFetch("/customer-orders/" + co.id);
     assert(coFinal.status === "shipped", "order correctly moved through billed -> shipped");
@@ -217,6 +220,45 @@ async function run() {
 
     const reworkReturnRes = await apiFetch("/rework-issues/" + woDetailAfterRework.rework_issues[0].id + "/return", postJSON({ quantity_returned: 1, quantity_wasted: 0 }));
     assert(reworkReturnRes.ok && reworkReturnRes.fully_reconciled, "confirmReworkReturn()'s exact shape accepted and closes the cycle");
+
+    section("=== Sales Return frontend shapes ===");
+    const returnSaleRes = await apiFetch("/sales", postJSON({ lines: [{ item_id: finishedItem.id, quantity: 2, description: "Return test saree", sale_price: 3000 }] }));
+    const returnSaleDetail = (await apiFetch("/sales")).find((s) => s.id === returnSaleRes.id);
+    const returnLine = returnSaleDetail.lines[0];
+    const returnCreateRes = await apiFetch("/sale-returns", postJSON({ sale_item_id: returnLine.id, quantity: 1, notes: "Customer changed mind" }));
+    assert(returnCreateRes.ok && returnCreateRes.lot_id, "createSalesReturn()'s exact shape accepted, new lot created");
+
+    const returnsListRes = await apiFetch("/sale-returns?sale_id=" + returnSaleRes.id);
+    assert(returnsListRes.length === 1, "loadSalesForReturn()'s GET works to compute already-returned quantities");
+
+    section("=== BOM reconciliation folded into openReceiveConfirm()/submitReceiveConfirm() ===");
+    const bomFabric = await apiFetch("/items", postJSON({ item_type: "raw_material", name: "Silk Thread", category_id: null, fabric_id: null, work_type_id: null, pattern_id: null, unit_of_measure: "metre", color: "", price: null, cost: null, description: "" }));
+    await apiFetch("/items/" + finishedItem.id + "/bom", postJSON({ lines: [{ raw_material_item_id: bomFabric.id, quantity_required: 3 }] }));
+    const bomLot = await apiFetch("/item-lots", postJSON({ item_id: bomFabric.id, site_id: store.id, quantity: 20, source_type: "direct_intake" }));
+    const bomWO = await apiFetch("/work-orders", postJSON({ description: "BOM recon job", worker_site_id: workerRes.id, intended_item_id: finishedItem.id, target_quantity: 1 }));
+
+    const bomIssueDispatchId = (await apiFetch("/work-orders/" + bomWO.id + "/issue-material", postJSON({ lot_id: bomLot.id, quantity: 8 }))).dispatch_id;
+    const bomIssueItem = (await apiFetch("/dispatches/" + bomIssueDispatchId)).items[0];
+    await apiFetch("/dispatches/" + bomIssueDispatchId + "/scan", postJSON({ item_id: bomFabric.id, lot_id: bomLot.id, scanned_quantity: 8 }));
+    await apiFetch("/dispatches/" + bomIssueDispatchId + "/ship", postJSON({ courier: "", tracking_id: "" }));
+    const bomIssueShippedItem = (await apiFetch("/dispatches/" + bomIssueDispatchId)).items[0];
+    await apiFetch("/dispatches/" + bomIssueDispatchId + "/receive", postJSON({ confirmations: [{ dispatch_item_id: bomIssueShippedItem.id, received_quantity: 8 }] }));
+
+    const bomShipBack = await apiFetch("/work-orders/" + bomWO.id + "/ship-back", postJSON({ quantity: 1 }));
+    const bomShipBackItem = (await apiFetch("/dispatches/" + bomShipBack.dispatch_id)).items[0];
+    await apiFetch("/dispatches/" + bomShipBack.dispatch_id + "/scan", postJSON({ item_id: finishedItem.id, lot_id: null, scanned_quantity: 1 }));
+    await apiFetch("/dispatches/" + bomShipBack.dispatch_id + "/ship", postJSON({ courier: "", tracking_id: "" }));
+
+    const previewRes2 = await apiFetch("/dispatches/" + bomShipBack.dispatch_id + "/reconciliation-preview?confirmed_quantity=1");
+    assert(previewRes2.lines.length === 1 && previewRes2.lines[0].bom_expected_consumption === 3, "openReceiveConfirm()'s exact preview call works, correctly showing 3 expected (BOM 3 x qty 1)");
+
+    const bomFinishedItem = (await apiFetch("/dispatches/" + bomShipBack.dispatch_id)).items[0];
+    const combinedConfirmRes = await apiFetch("/dispatches/" + bomShipBack.dispatch_id + "/receive", postJSON({
+      confirmations: [{ dispatch_item_id: bomFinishedItem.id, received_quantity: 1 }], labor_cost: 100,
+      material_reconciliation: [{ material_issue_id: previewRes2.lines[0].material_issue_id, quantity_returned_stock: 5, quantity_wasted: 0 }],
+    }));
+    assert(combinedConfirmRes.work_order_closed && combinedConfirmRes.material_reconciliation_results[0].fully_reconciled,
+      "submitReceiveConfirm()'s exact combined shape (confirmations + material_reconciliation together) works end to end");
 
   } finally {
     server.close();

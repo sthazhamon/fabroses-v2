@@ -2,7 +2,7 @@ import { logEdits } from "../_editlog.js";
 
 export async function onRequestGet({ params, env }) {
   const order = await env.DB.prepare(
-    `SELECT w.*, s.name AS worker_site_name, ii.name AS intended_item_name, io.name AS output_item_name
+    `SELECT w.*, s.name AS worker_site_name, ii.name AS intended_item_name, ii.item_code AS intended_item_code, io.name AS output_item_name
      FROM work_orders w
      LEFT JOIN sites s ON s.id = w.worker_site_id
      LEFT JOIN items ii ON ii.id = w.intended_item_id

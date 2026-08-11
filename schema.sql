@@ -243,6 +243,7 @@ CREATE TABLE material_issues (
   quantity_wasted REAL DEFAULT 0,
   worker_site_id TEXT REFERENCES sites(id),
   status TEXT DEFAULT 'with_worker',
+  verified_at TEXT,
   issued_at TEXT DEFAULT (datetime('now')),
   received_at TEXT,
   notes TEXT
@@ -418,6 +419,19 @@ CREATE TABLE sale_items (
   tax_rate REAL DEFAULT 0,
   tax_amount REAL DEFAULT 0,
   line_total REAL NOT NULL
+);
+
+-- A physical return of a sold item back into stock — deliberately separate
+-- from refunds, which only move money. This only moves inventory.
+CREATE TABLE sale_returns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sale_item_id INTEGER NOT NULL REFERENCES sale_items(id),
+  lot_id TEXT REFERENCES item_lots(id),
+  quantity REAL NOT NULL,
+  destination_site_id TEXT REFERENCES sites(id),
+  notes TEXT,
+  created_by TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE refunds (
