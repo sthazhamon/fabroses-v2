@@ -1,3 +1,27 @@
+// How much of a lot is genuinely available to commit to a NEW dispatch —
+// the raw balance minus whatever's already claimed by other dispatches for
+// this same lot that haven't shipped yet. Without this, the same physical
+// stock could be double-booked across two separate pending dispatches.
+export async function genuinelyAvailable(env, lotId) {
+  const lot = await env.DB.prepare("SELECT * FROM item_lots WHERE id = ?").bind(lotId).first();
+  if (!lot) return null;
+  const committedRow = await env.DB.prepare(
+    `SELECT COALESCE(SUM(di.expected_quantity),0) AS t FROM dispatch_items di
+     JOIN dispatches d ON d.id = di.dispatch_id
+     WHERE di.lot_id = ? AND d.status IN ('pending_pick','picked')`
+  ).bind(lotId).first();
+  const lotOwnAvailable = Math.max(0, lot.quantity_balance - committedRow.t);
+
+  // Reservations (open material_issues) are tracked per item+site, not per
+  // specific lot — a job's issue can reference this lot only for lookup
+  // purposes while physically drawing from any lot of that item at the
+  // site. So the real ceiling is the smaller of: what this specific lot
+  // itself can physically supply, and what's genuinely free site-wide
+  // once every lot's reservations are accounted for together.
+  const { available: siteWideAvailable } = await genuinelyAvailableAtSite(env, lot.item_id, lot.site_id);
+  return { lot, available: Math.min(lotOwnAvailable, siteWideAvailable) };
+}
+
 async function nextId(env, table, prefix, pad = 6) {
   const row = await env.DB.prepare(`SELECT COUNT(*) AS c FROM ${table}`).first();
   return `${prefix}-` + String((row?.c || 0) + 1).padStart(pad, "0");
@@ -30,7 +54,7 @@ export async function reconcileMaterialIssue(env, issueId, { quantity_returned_s
   const amountLeavingWorkerLot = close_fully ? stillOutstandingBefore : thisEvent;
   if (amountLeavingWorkerLot > 0 && refLot) {
     const { results: workerLots } = await env.DB.prepare(
-      "SELECT * FROM item_lots WHERE item_id = ? AND site_id = ? AND quantity_balance > 0 ORDER BY created_at ASC"
+      "SELECT * FROM item_lots WHERE item_id = ? AND site_id = ? AND quantity_balance > 0 ORDER BY created_at ASC, id ASC"
     ).bind(refLot.item_id, issue.worker_site_id).all();
     const totalAtWorker = workerLots.reduce((s, l) => s + l.quantity_balance, 0);
     if (totalAtWorker < amountLeavingWorkerLot - 0.001) {
@@ -110,8 +134,24 @@ export async function suggestMaterialReconciliation(env, workOrderId, confirmedQ
   return suggestions;
 }
 async function stockAtSite(env, itemId, siteId) {
-  const { results } = await env.DB.prepare("SELECT * FROM item_lots WHERE item_id = ? AND site_id = ? AND quantity_balance > 0 ORDER BY created_at ASC").bind(itemId, siteId).all();
+  const { results } = await env.DB.prepare("SELECT * FROM item_lots WHERE item_id = ? AND site_id = ? AND quantity_balance > 0 ORDER BY created_at ASC, id ASC").bind(itemId, siteId).all();
   return results;
+}
+
+// How much raw stock at a site is genuinely free to reserve for a NEW job —
+// the physical balance minus whatever's already reserved by OTHER open
+// (not yet consumed) material issues for that same item at that site.
+// Without this, two jobs could both see the same stock as "available"
+// and both reserve it, since reservation no longer decrements immediately.
+export async function genuinelyAvailableAtSite(env, itemId, siteId) {
+  const workerLots = await stockAtSite(env, itemId, siteId);
+  const rawBalance = workerLots.reduce((s, l) => s + l.quantity_balance, 0);
+  const { results: openIssues } = await env.DB.prepare(
+    `SELECT mi.* FROM material_issues mi JOIN item_lots l ON l.id = mi.lot_id
+     WHERE l.item_id = ? AND mi.worker_site_id = ? AND mi.status != 'received'`
+  ).bind(itemId, siteId).all();
+  const alreadyReserved = openIssues.reduce((s, i) => s + (i.quantity_issued - i.quantity_returned_stock - i.quantity_wasted), 0);
+  return { rawBalance, available: Math.max(0, rawBalance - alreadyReserved), workerLots };
 }
 
 // Consumes FIFO across whatever lots are available at a site, up to
@@ -164,21 +204,17 @@ export async function fulfillBomLines(env, { workOrderId, workerSiteId, lines, a
     const quantity = line.quantity;
     if (!quantity) continue;
 
-    const workerLots = await stockAtSite(env, line.raw_material_item_id, workerSiteId);
-    const workerAvailable = workerLots.reduce((s, l) => s + l.quantity_balance, 0);
+    const { available: workerAvailable, workerLots } = await genuinelyAvailableAtSite(env, line.raw_material_item_id, workerSiteId);
 
     if (workerAvailable >= quantity) {
       // Already at the worker's site from a previous job — no physical
-      // move needed, but it still becomes a real, reconcilable material
-      // issue, exactly as if it had just arrived.
-      const { taken } = await consumeFifo(env, workerLots, quantity);
+      // move needed. This reserves it via a real material issue (which is
+      // what the scan-verification gate checks against), but doesn't
+      // decrement the balance yet — actual consumption happens later, at
+      // Mark Job Done, matching every other raw-material consumption point.
       const issueId = await nextId(env, "material_issues", "ISS");
       await env.DB.prepare("INSERT INTO material_issues (id, work_order_id, lot_id, quantity_issued, worker_site_id, status) VALUES (?, ?, ?, ?, ?, 'with_worker')")
-        .bind(issueId, workOrderId, taken[0].lot_id, quantity, workerSiteId).run();
-      for (const t of taken) {
-        await env.DB.prepare("INSERT INTO item_movements (lot_id, item_id, event_type, from_site_id, quantity, work_order_id, notes, created_by) VALUES (?, ?, 'consumed', ?, ?, ?, ?, ?)")
-          .bind(t.lot_id, line.raw_material_item_id, workerSiteId, t.quantity, workOrderId, "Already at worker's site, drawn against this job", actorName || "system").run();
-      }
+        .bind(issueId, workOrderId, workerLots[0].id, quantity, workerSiteId).run();
       results.push({ raw_material_item_id: line.raw_material_item_id, resolution: "already_at_worker", quantity });
       continue;
     }

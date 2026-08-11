@@ -17,9 +17,9 @@ export async function onRequestGet({ env }) {
 
 export async function onRequestPost({ request, env }) {
   const body = await request.json();
-  const { customer_party_id, customer_name, customer_phone, order_date, promised_delivery_date, notes, items } = body;
+  const { customer_party_id, customer_name, reseller_name, customer_phone, order_date, promised_delivery_date, notes, items } = body;
 
-  if (!customer_name) return Response.json({ error: "customer_name is required" }, { status: 400 });
+  if (!customer_name && !reseller_name) return Response.json({ error: "Either customer_name or reseller_name is required" }, { status: 400 });
   if (!items || !items.length) return Response.json({ error: "At least one line item is required" }, { status: 400 });
 
   for (const item of items) {
@@ -28,9 +28,9 @@ export async function onRequestPost({ request, env }) {
 
   const id = await nextId(env, "customer_orders", "CO");
   await env.DB.prepare(
-    `INSERT INTO customer_orders (id, customer_party_id, customer_name, customer_phone, order_date, promised_delivery_date, status, notes)
-     VALUES (?, ?, ?, ?, ?, ?, 'received', ?)`
-  ).bind(id, customer_party_id || null, customer_name, customer_phone || null, order_date || new Date().toISOString().slice(0, 10), promised_delivery_date || null, notes || null).run();
+    `INSERT INTO customer_orders (id, customer_party_id, customer_name, reseller_name, customer_phone, order_date, promised_delivery_date, status, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'received', ?)`
+  ).bind(id, customer_party_id || null, customer_name || null, reseller_name || null, customer_phone || null, order_date || new Date().toISOString().slice(0, 10), promised_delivery_date || null, notes || null).run();
 
   for (const item of items) {
     let effectiveDescription = item.description || null;

@@ -48,7 +48,7 @@ async function run() {
   assert(dispatchCountAfterDirect.c === 0, "CRITICAL: no dispatch was created for material already sitting at the worker's own site");
 
   const workerLotAfter = await env.DB.prepare("SELECT quantity_balance FROM item_lots WHERE id = ?").bind(workerLot.id).first();
-  assert(workerLotAfter.quantity_balance === 0, "the worker's own lot balance correctly dropped immediately, since this is a direct issue");
+  assert(workerLotAfter.quantity_balance === 3, "the worker's own lot balance correctly stays put (reserved, not yet consumed) — actual consumption is deferred to Mark Job Done now");
 
   const directIssueRow = await env.DB.prepare("SELECT * FROM material_issues WHERE id = ?").bind(directRes.issue_id).first();
   assert(directIssueRow.status === "with_worker" && directIssueRow.quantity_issued === 3, "a real, reconcilable material issue exists for this direct issue");

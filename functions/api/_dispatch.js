@@ -76,6 +76,7 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
   let workOrderClosed = false;
   let finishedLotId = null;
   const reconciliationResults = [];
+  const createdLotIds = [];
 
   for (const conf of itemConfirmations) {
     const item = await env.DB.prepare("SELECT * FROM dispatch_items WHERE id = ?").bind(conf.dispatch_item_id).first();
@@ -100,6 +101,7 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
       }
 
       finishedLotId = await nextId(env, "item_lots", "LOT");
+      createdLotIds.push({ lot_id: finishedLotId, item_id: item.item_id });
       await env.DB.prepare(
         `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, cost_total, notes)
          VALUES (?, ?, ?, ?, ?, 'work_order_output', ?, ?, ?)`
@@ -146,6 +148,7 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
     }
 
     const newLotId = await nextId(env, "item_lots", "LOT");
+    createdLotIds.push({ lot_id: newLotId, item_id: item.item_id });
     await env.DB.prepare(
       `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, notes)
        VALUES (?, ?, ?, ?, ?, 'transfer_in', ?, ?)`
@@ -154,6 +157,38 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
       `INSERT INTO item_movements (lot_id, item_id, event_type, to_site_id, quantity, work_order_id, dispatch_id, notes, created_by)
        VALUES (?, ?, 'transferred_in', ?, ?, ?, ?, ?, ?)`
     ).bind(newLotId, item.item_id, dispatch.to_site_id, conf.received_quantity, dispatch.related_work_order_id, dispatchId, `Confirmed received (${dispatchId})`, actorName || "system").run();
+
+    let creditedAsWorkOrderOutput = false;
+    if (dispatch.dispatch_type === "stock_transfer" && !dispatch.related_work_order_id && item.lot_id) {
+      const sourceLot = await env.DB.prepare("SELECT * FROM item_lots WHERE id = ?").bind(item.lot_id).first();
+      if (sourceLot && sourceLot.source_type === "work_order_output" && sourceLot.source_reference) {
+        const outputOrder = await env.DB.prepare("SELECT * FROM work_orders WHERE id = ?").bind(sourceLot.source_reference).first();
+        if (outputOrder && !outputOrder.closed_at) {
+          const newReceivedTotal = outputOrder.received_quantity_total + conf.received_quantity;
+          const nowClosed = newReceivedTotal >= outputOrder.target_quantity;
+          await env.DB.prepare(
+            "UPDATE work_orders SET received_quantity_total = ?, closed_at = ?, updated_at = datetime('now') WHERE id = ?"
+          ).bind(newReceivedTotal, nowClosed ? new Date().toISOString() : null, outputOrder.id).run();
+
+          if (nowClosed) {
+            const closedLine = await env.DB.prepare("SELECT * FROM customer_order_items WHERE linked_work_order_id = ?").bind(outputOrder.id).first();
+            if (closedLine) {
+              const { results: siblingLines } = await env.DB.prepare(
+                "SELECT coi.*, w.closed_at AS wo_closed_at FROM customer_order_items coi LEFT JOIN work_orders w ON w.id = coi.linked_work_order_id WHERE coi.customer_order_id = ?"
+              ).bind(closedLine.customer_order_id).all();
+              const allReady = siblingLines.every((l) => !l.linked_work_order_id || l.wo_closed_at);
+              const currentOrder = await env.DB.prepare("SELECT status FROM customer_orders WHERE id = ?").bind(closedLine.customer_order_id).first();
+              if (currentOrder && !["billed", "shipped", "cancelled"].includes(currentOrder.status)) {
+                await env.DB.prepare("UPDATE customer_orders SET status = ?, updated_at = datetime('now') WHERE id = ?")
+                  .bind(allReady ? "ready_to_bill" : "partially_fulfilled", closedLine.customer_order_id).run();
+              }
+            }
+          }
+          creditedAsWorkOrderOutput = true;
+          if (nowClosed) workOrderClosed = true;
+        }
+      }
+    }
 
     if (dispatch.dispatch_type === "stock_transfer" && dispatch.related_work_order_id) {
       const order = await env.DB.prepare("SELECT job_type FROM work_orders WHERE id = ?").bind(dispatch.related_work_order_id).first();
@@ -172,7 +207,7 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
 
       await env.DB.prepare("UPDATE work_orders SET stage = 'Material Received', updated_at = datetime('now') WHERE id = ?").bind(dispatch.related_work_order_id).run();
       await env.DB.prepare("INSERT INTO stage_log (work_order_id, stage, changed_by) VALUES (?, 'Material Received', ?)").bind(dispatch.related_work_order_id, actorName || "system").run();
-    } else if (dispatch.dispatch_type === "stock_transfer" && !dispatch.related_work_order_id && item.lot_id) {
+    } else if (dispatch.dispatch_type === "stock_transfer" && !dispatch.related_work_order_id && item.lot_id && !creditedAsWorkOrderOutput) {
       // Generic, worker-initiated return of leftover raw material — not
       // tied to any one job. The lot the worker actually holds is a
       // worker-side lot created at confirm-receive time, not the original
@@ -183,7 +218,7 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
       let remaining = conf.received_quantity;
       const { results: openIssues } = await env.DB.prepare(
         `SELECT mi.* FROM material_issues mi JOIN item_lots l ON l.id = mi.lot_id
-         WHERE l.item_id = ? AND mi.worker_site_id = ? AND mi.status != 'received' ORDER BY mi.issued_at ASC`
+         WHERE l.item_id = ? AND mi.worker_site_id = ? AND mi.status != 'received' ORDER BY mi.issued_at ASC, mi.id ASC`
       ).bind(item.item_id, dispatch.from_site_id).all();
 
       for (const issue of openIssues) {
@@ -207,5 +242,5 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
   }
 
   await env.DB.prepare("UPDATE dispatches SET status = 'received', received_at = datetime('now') WHERE id = ?").bind(dispatchId).run();
-  return { ok: true, work_order_closed: workOrderClosed, lot_id: finishedLotId, material_reconciliation_results: reconciliationResults };
+  return { ok: true, work_order_closed: workOrderClosed, lot_id: finishedLotId, created_lot_ids: createdLotIds, material_reconciliation_results: reconciliationResults };
 }

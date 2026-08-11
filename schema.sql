@@ -297,7 +297,8 @@ CREATE TABLE photos (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_type TEXT NOT 
 CREATE TABLE customer_orders (
   id TEXT PRIMARY KEY,
   customer_party_id TEXT,
-  customer_name TEXT NOT NULL,
+  customer_name TEXT,
+  reseller_name TEXT,
   customer_phone TEXT,
   order_date TEXT,
   promised_delivery_date TEXT,

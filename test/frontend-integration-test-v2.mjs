@@ -266,6 +266,21 @@ async function run() {
     assert(combinedConfirmRes.work_order_closed && combinedConfirmRes.material_reconciliation_results[0].fully_reconciled,
       "submitReceiveConfirm()'s exact combined shape (confirmations + material_reconciliation together) works end to end");
 
+    section("=== Mark Job Done + bundled shipping — the redesigned worker flow ===");
+    const bomFabricForDone = await apiFetch("/items", postJSON({ item_type: "raw_material", name: "Done-Flow Fabric", category_id: null, fabric_id: null, work_type_id: null, pattern_id: null, unit_of_measure: "metre", color: "", price: null, cost: null, description: "" }));
+    await apiFetch("/items/" + finishedItem.id + "/bom", postJSON({ lines: [{ raw_material_item_id: bomFabricForDone.id, quantity_required: 2 }] }));
+    await apiFetch("/item-lots", postJSON({ item_id: bomFabricForDone.id, site_id: workerRes.id, quantity: 10, source_type: "opening_stock" }));
+
+    const doneWO = await apiFetch("/work-orders", postJSON({ description: "Mark done flow", worker_site_id: workerRes.id, intended_item_id: finishedItem.id, target_quantity: 1, priority: "normal", due_date: null }));
+    const doneIssue = await apiFetch("/work-orders/" + doneWO.id).then((w) => w.issues[0]);
+    await apiFetch("/material-issues/" + doneIssue.id + "/verify", postJSON({ item_id: bomFabricForDone.id, lot_id: doneIssue.lot_id }));
+    await apiFetch("/work-orders/" + doneWO.id + "/stage", postJSON({ stage: "Work Started" }));
+    const markDoneRes = await apiFetch("/work-orders/" + doneWO.id + "/mark-done", postJSON({}));
+    assert(markDoneRes.ok && markDoneRes.finished_lot_id, "markJobDone()'s exact call works end to end");
+
+    const bundleShipRes = await apiFetch("/ship-my-stock", postJSON({ from_site_id: workerRes.id, items: [{ lot_id: markDoneRes.finished_lot_id, quantity: 1 }] }));
+    assert(bundleShipRes.dispatch_id, "shipSelectedStock()'s exact call works, bundling from My Own Stock");
+
   } finally {
     server.close();
   }

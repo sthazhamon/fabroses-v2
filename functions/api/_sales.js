@@ -9,7 +9,7 @@ async function consumeStock(env, itemId, quantity, forceLotId) {
     await env.DB.prepare("UPDATE item_lots SET quantity_balance = quantity_balance - ? WHERE id = ?").bind(quantity, lot.id).run();
     return [{ lot_id: lot.id, site_id: lot.site_id, quantity }];
   }
-  const { results: lots } = await env.DB.prepare("SELECT * FROM item_lots WHERE item_id = ? AND quantity_balance > 0 ORDER BY created_at ASC").bind(itemId).all();
+  const { results: lots } = await env.DB.prepare("SELECT * FROM item_lots WHERE item_id = ? AND quantity_balance > 0 ORDER BY created_at ASC, id ASC").bind(itemId).all();
   const available = lots.reduce((s, l) => s + l.quantity_balance, 0);
   if (available < quantity) throw new Error(`Only ${available} unit(s) in stock`);
   let remaining = quantity;

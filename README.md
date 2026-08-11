@@ -1,93 +1,119 @@
 # FabRoses Business System — this session's build
 
-**280 automated tests, all passing.** Run `npm test` to verify yourself
+**310 automated tests, all passing.** Run `npm test` to verify yourself
 before trusting this with real data.
 
-This session restructured how the Dispatch/Store role works, and rebuilt
-Customer Order shipping to go through a real, verifiable two-step
-dispatch instead of a shortcut. Below is what actually changed, in the
-order it was built, followed by two things worth reading carefully: a
-real double-decrement risk this session had to design around, and a
-genuine gap found in the pick step that had been sitting unnoticed.
+This session's centerpiece is a genuine redesign of how a worker
+completes a job: raw material now consumes at a deliberate "Mark Job
+Done" action rather than being folded into shipping, and shipping itself
+becomes a plain, bundleable stock transfer — a worker can now select
+several finished pieces and leftover raw material together and send them
+back in one dispatch, rather than one action per item. Below is what
+changed, followed by the real conflicts this redesign surfaced with
+things built earlier — worth reading, since several were only caught by
+tests actually failing, not by inspection.
 
-## A quick note on recovery
+## The redesigned worker flow
 
-Partway through this session, the working environment reset and the
-in-progress project was lost. It was recovered from the last delivered
-zip and the full test suite was re-verified clean (244/244) before any
-new work began, so everything below builds on a confirmed foundation.
+- **Mark Job Done** is a new action, available once work has started. It
+  consumes the BOM-expected raw material and creates the finished-good
+  lot right at the worker's own site — plain stock from that point on,
+  not a special "in transit" state.
+- **My Own Stock is now a single, unified, multi-select list** — finished
+  goods and leftover raw material together, each with a checkbox and an
+  editable quantity. One "Ship selected" action bundles whatever's
+  checked into one dispatch.
+- **Confirming a bundle credits each work order independently** — if two
+  different jobs' outputs travel in the same shipment, each one's
+  progress and closure is tracked correctly on its own, with no
+  cross-contamination between them. This is proven directly: a dedicated
+  test bundles two jobs' outputs plus raw material into one dispatch and
+  confirms each work order closes independently.
+- The old single-item "Ship the finished piece back" screen is now shown
+  only for rework jobs, which still work exactly as before — production
+  jobs use the new flow throughout.
 
-## The Dispatch/Store role is now genuinely restricted
+## Four real bugs this session's own tests caught in a row — worth reading
 
-Previously "Dispatch" had access to Catalogue, Sites, Purchase Orders,
-Work Orders, Customer Orders, and Sales. It's now trimmed to exactly
-Sites, Dispatch, and Receive, enforced in the backend middleware, not
-just hidden from the nav. A dedicated test proves this with real signed
-tokens: Sales and Customer Orders now return a genuine 403, while Sites,
-Dispatch, Receive, and PO receiving still work correctly.
+Building Mark Job Done wasn't a single clean addition — it surfaced a
+chain of real conflicts with mechanisms built earlier this session, each
+one only found because a test failed, not because it was anticipated:
 
-This meant two capabilities had to be rebuilt so the role could still do
-its job:
+1. **The existing BOM auto-fulfillment was already immediately consuming
+   raw material the moment a job was created** — directly contradicting
+   the new premise that consumption happens later, at Mark Job Done.
+2. **Fixing that reintroduced an overcommitment bug** fixed earlier this
+   session, just in a new place — two jobs could both see the same
+   "available" stock and both reserve it, since reservation no longer
+   immediately decremented.
+3. **That fix itself had a real flaw** — it was attributing an item's
+   entire site-wide reservation against whichever single lot happened to
+   be checked, which would have wrongly blocked a valid return from a
+   completely unrelated, genuinely-free lot of the same item.
+4. **A timestamp tie-breaking bug** in the FIFO reconciliation logic —
+   SQLite's per-second precision meant rapid test operations could tie,
+   making "oldest issue first" non-deterministic. Fixed here and in two
+   other places with the same underlying vulnerability.
 
-- Issuing raw material was redesigned entirely: pick the raw material
-  from the job's BOM, then pick a lot from a dropdown showing every lot
-  at either the store or the worker's site with quantity shown, capped to
-  what that lot actually has. A lot already at the worker creates a
-  direct issue with no pointless self-dispatch; a store lot still creates
-  a real dispatch as before.
-- Customer Order shipping is now a real two-step dispatch, not a direct
-  status flip. Billing (choosing a lot from a dropdown) auto-creates a
-  real customer_shipment dispatch. The Dispatch role never touches Sales
-  or Customer Orders directly; the shipment just appears in their queue.
-  The old shortcut endpoint is deleted, not just unused.
+Five pre-existing tests needed real updates as a direct, correct
+consequence of the new design — some were simply outdated assumptions
+("balance drops immediately") that needed correcting, and two needed
+their actual test narratives reworked because earlier steps now
+legitimately behave differently than they used to.
 
-## Two things worth reading in full
+## Everything else fixed this session
 
-Billing already removes stock from inventory, so shipping must not do it
-again. Building the new dispatch naively would have decremented the same
-lot twice for one sale. Fixed: shipping a customer_shipment dispatch
-specifically skips the stock decrement, since billing already did it. A
-dedicated test checks the exact lot balance at both points to prove this.
-
-The pick step wasn't actually verifying anything. It was quietly sending
-the dispatch's own expected item and lot straight back to the
-mismatch-detection endpoint, rather than asking the picker to enter
-anything themselves. The safety check worked correctly, it just never
-had a chance to catch anything. Fixed with real, blank input fields and a
-scan button matching the pattern used elsewhere in this app.
-
-## Smaller confirmed fixes
-
-- Reseller logins can now actually be created. The role existed but
-  nothing collected which reseller party the login belonged to.
-- Purchase Orders can now reference finished goods, not just raw
-  materials, for suppliers who deliver an already-finished product.
-- Confirmed already working, no changes needed: billing a raw material
-  directly, and producing a finished item with no BOM at all.
-
-## One interpretive call worth double-checking
-
-Issue Material was kept in Work Orders rather than relocated into
-Receive or Dispatch, reasoning it's an allocation decision best made
-where admin/accountant already work. If that's not the intended
-placement, it's a contained change to move.
+- **The Dispatch/Store role is now genuinely restricted** to Sites,
+  Dispatch, and Receive — enforced in the backend, not just hidden from
+  the nav. Issuing material stays an admin/accountant decision made from
+  Work Orders; the redesigned form there now uses a proper BOM-driven
+  raw-material dropdown, then a lot dropdown showing quantity at both the
+  store and the worker's site, capped correctly either way.
+- **Customer Order shipping is a real two-step dispatch now**, not a
+  direct status flip — billing picks a lot from a dropdown and
+  auto-creates the shipment; the Dispatch role never touches Sales or
+  Customer Orders directly.
+- **Resellers can now place Customer Orders** — the same gap Sales had
+  already been fixed for, now closed here too.
+- **Purchase Orders can reference finished goods**, for suppliers who
+  deliver something already complete.
+- **The systemic overcommitment bug** — the same lot being claimable by
+  two pending actions at once — is fixed everywhere it could occur.
+- **Confirm-receive now uniformly returns every newly-created lot**,
+  shows where a shipment is coming from, and offers a correctly-encoded
+  QR right after confirming — for raw material arriving, not just
+  finished goods.
+- **The previously-missing PO-receiving control** now exists directly in
+  the Receive tab, with its own inline quantity-and-receive action.
+- The tab order now follows the confirmed business workflow sequence.
 
 ## Testing this yourself
 
 ```
 npm test
 ```
-280 tests across 28 files, including a real end-to-end suite that starts
+310 tests across 33 files, including a real end-to-end suite that starts
 an actual HTTP server and drives it with the exact request shapes the
-frontend sends, including the full billing-to-shipped flow.
+frontend sends — including the complete new Mark-Job-Done-to-bundled-ship
+flow.
 
 ## Deployment
 
-No schema changes this session, same deploy steps as the last delivery.
+The schema changed this session (a new `Work Done` stage value, a
+reseller field on customer orders — no new tables). Same deploy process
+as always:
+```
+wrangler d1 delete fabroses-db
+wrangler d1 create fabroses-db
+wrangler d1 execute fabroses-db --file=./schema.sql --remote
+```
 
 ## Honestly still open
 
-- The item-photo cross-contamination bug from earlier in this project.
-- The exact placement of Issue Material, flagged above as an assumption.
+- The item-photo cross-contamination bug from earlier in this project —
+  still needs the URL comparison originally asked for.
 - The mobile card/bottom-nav layout still hasn't been confirmed on an
   actual phone by a human.
+- Rework jobs deliberately still use the old single-item ship-back flow,
+  unchanged — this redesign only covers production jobs, matching what
+  was actually discussed.

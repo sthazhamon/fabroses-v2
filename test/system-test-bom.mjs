@@ -47,7 +47,7 @@ async function run() {
   assert(threadIssue && threadIssue.quantity_issued === 4, "a real, reconcilable material issue was still created even though nothing physically moved");
 
   const threadStockAfter = await env.DB.prepare("SELECT quantity_balance FROM item_lots WHERE item_id = ? AND site_id = ?").bind(thread.id, worker.id).first();
-  assert(threadStockAfter.quantity_balance === 6, `worker's thread stock correctly dropped 10 -> 6 (4 consumed), got ${threadStockAfter.quantity_balance}`);
+  assert(threadStockAfter.quantity_balance === 10, `worker's thread stock correctly stays at 10 (reserved via the material issue, but NOT yet consumed — actual consumption is deferred to Mark Job Done), got ${threadStockAfter.quantity_balance}`);
 
   section("=== Case 2: fabric isn't at the worker, but the store has enough — auto-dispatch created ===");
   const fabricResult = wo1.bom_results.find((r) => r.raw_material_item_id === fabric.id);

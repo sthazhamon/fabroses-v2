@@ -1,14 +1,16 @@
 import { createDispatch } from "./_dispatch.js";
+import { genuinelyAvailable } from "./_bom.js";
 
 export async function onRequestPost({ request, env }) {
   const body = await request.json();
   const { from_site_id, lot_id, quantity, to_site_id } = body;
   if (!from_site_id || !lot_id || !quantity) return Response.json({ error: "from_site_id, lot_id, and quantity are required" }, { status: 400 });
 
-  const lot = await env.DB.prepare("SELECT * FROM item_lots WHERE id = ?").bind(lot_id).first();
-  if (!lot) return Response.json({ error: "Lot not found" }, { status: 404 });
+  const check = await genuinelyAvailable(env, lot_id);
+  if (!check) return Response.json({ error: "Lot not found" }, { status: 404 });
+  const { lot, available } = check;
   if (lot.site_id !== from_site_id) return Response.json({ error: "That lot isn't at the site you specified" }, { status: 400 });
-  if (lot.quantity_balance < quantity) return Response.json({ error: `Only ${lot.quantity_balance} available in that lot` }, { status: 400 });
+  if (available < quantity) return Response.json({ error: `Only ${available} genuinely available — the rest is already committed to another pending dispatch` }, { status: 400 });
 
   let storeSiteId = to_site_id;
   if (!storeSiteId) {
