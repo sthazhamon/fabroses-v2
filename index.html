@@ -33,6 +33,7 @@
   #more-overlay.open{display:block;}
   #more-sheet button{width:100%; text-align:left; padding:13px 20px; background:none; border:none; font-size:0.92rem; color:var(--ink); border-bottom:1px solid var(--line);}
   #more-sheet button.active{color:var(--rose-dark); font-weight:700;}
+  main{padding:14px; max-width:680px; margin:0 auto;}
   @media (max-width:720px){
     nav.top-nav{display:none;}
     nav.bottom-nav{display:flex; position:fixed; bottom:0; left:0; width:100%; background:#fff; border-top:1px solid var(--line); box-shadow:0 -2px 12px rgba(0,0,0,0.06); z-index:20; padding:4px 0;}
@@ -41,7 +42,6 @@
     nav.bottom-nav button.active{color:var(--rose);}
     main{padding-bottom:76px;}
   }
-  main{padding:14px; max-width:680px; margin:0 auto;}
   .panel{display:none;} .panel.active{display:block;}
   label{display:block; font-size:0.82rem; margin:12px 0 4px; color:#7a5f66; font-weight:600;}
   input, select, textarea{width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px; font-size:0.95rem; background:#fff;}
@@ -226,6 +226,11 @@
       <div id="mywork-detail"></div>
     </section>
 
+    <section class="panel" id="panel-resellerportal">
+      <h3 id="rp-greeting">My Orders & Rewards</h3>
+      <div id="rp-content" class="muted">Loading...</div>
+    </section>
+
     <section class="panel" id="panel-dispatch">
       <h3>Dispatch</h3>
       <p class="muted">Everything waiting to go out. Nothing lands at the destination until it's confirmed received there.</p>
@@ -271,9 +276,9 @@
         <label><input type="checkbox" id="s-fulfills-checkbox" checked style="width:auto;"> This fulfills <span id="s-fulfills-co-id"></span></label>
       </div>
       <label>Customer or reseller <button type="button" class="secondary btn-sm" onclick="addPartyInline('customer','s-customer-select')">+new customer</button></label>
-      <select id="s-customer-select"><option value="">-- none / cash sale --</option></select>
+      <select id="s-customer-select" onchange="applyResellerDiscount()"><option value="">-- none / cash sale --</option></select>
       <div class="card"><h4 style="margin-top:0;">Line items</h4><div id="s-lines"></div>
-        <button type="button" class="secondary btn-sm" onclick="addSaleLine()">+ Add line</button></div>
+        <button type="button" class="secondary btn-sm" onclick="addSaleLine().then(applyResellerDiscount)">+ Add line</button></div>
       <button class="primary" onclick="createSale()">Record sale</button>
       <div id="sale-result"></div>
       <div class="card"><h4 style="margin-top:0;">Refunds</h4>
@@ -439,6 +444,7 @@ const TABS = [
   { id: "co", label: "Customer Orders", roles: ["admin","accountant"] },
   { id: "workorders", label: "Work Orders", roles: ["admin","accountant"] },
   { id: "mywork", label: "My Work", roles: ["worker"] },
+  { id: "resellerportal", label: "My Orders & Rewards", roles: ["reseller"] },
   { id: "dispatch", label: "Dispatch", roles: ["admin","accountant","dispatch"] },
   { id: "sales", label: "Sales", roles: ["admin","accountant"] },
   { id: "receivable", label: "Receivable", roles: ["admin","accountant"] },
@@ -535,6 +541,7 @@ function loadTabData(tabId){
     if(tabId==="po"){ populatePartyDropdown("po-supplier-select","supplier"); loadPOs(); }
     if(tabId==="workorders"){ loadBacklog(); populateSiteDropdown("wo-worker","worker"); populateItemDropdown("wo-intended","finished_good"); loadWOs(); }
     if(tabId==="mywork") loadMyWork();
+    if(tabId==="resellerportal") loadResellerPortal();
     if(tabId==="dispatch"){ loadDispatchQueue(); loadDispatchHistory(); }
     if(tabId==="receive"){ loadReceiveQueue(); loadPOReceiveQueue(); loadReceiveHistory(); }
     if(tabId==="co"){ populateCustomerOrResellerDropdown("co-customer-select"); loadCOs(); }
@@ -624,11 +631,23 @@ async function populateAccountDropdowns(){ await populateAccountDropdown("je-deb
 async function loadDashboard(){
   try{
     const pnl = await apiFetch("/reports/pnl");
+    const alerts = await apiFetch("/dashboard-alerts");
+    const ordersHtml = alerts.unactioned_orders.length
+      ? alerts.unactioned_orders.map(function(o){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+(o.customer_name||o.reseller_name)+'</p><p class="lc-sub">'+o.id+' · placed '+o.order_date+'</p></div>'+
+        '<button class="secondary btn-sm" onclick="switchTab(\'co\');viewCO(\''+o.id+'\')">View</button></div>';}).join("")
+      : '<p class="muted">Nothing unactioned right now.</p>';
+    const overdueHtml = alerts.overdue_work_orders.length
+      ? alerts.overdue_work_orders.map(function(w){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+w.description+'</p><p class="lc-sub">'+w.id+' · due '+w.due_date+' · '+w.stage+' · '+(w.worker_site_name||"-")+'</p></div>'+
+        '<button class="secondary btn-sm" onclick="switchTab(\'workorders\');viewWO(\''+w.id+'\')">View</button></div>';}).join("")
+      : '<p class="muted">Nothing overdue right now.</p>';
     document.getElementById("dash-content").innerHTML =
       '<div class="kpi-grid">'+
         '<div class="kpi"><div class="num">Rs '+pnl.net_revenue+'</div><div class="lbl">Net revenue</div></div>'+
         '<div class="kpi"><div class="num">Rs '+pnl.net_profit+'</div><div class="lbl">Net profit</div></div>'+
-      '</div><p class="muted">All-time</p>';
+      '</div><p class="muted">All-time</p>'+
+      '<h4>Needs attention</h4>'+
+      '<p class="muted" style="margin-bottom:4px;">Customer orders with nothing yet linked to a job ('+alerts.unactioned_orders.length+')</p>'+ordersHtml+
+      '<p class="muted" style="margin:10px 0 4px;">Overdue work orders ('+alerts.overdue_work_orders.length+')</p>'+overdueHtml;
   }catch(e){ document.getElementById("dash-content").textContent = e.message; }
 }
 
@@ -1288,6 +1307,71 @@ async function loadMyWork(){
     });
   }catch(e){document.getElementById("mywork-content").textContent=e.message;}
 }
+async function loadResellerPortal(){
+  try{
+    const p = await apiFetch("/reseller-portal");
+    document.getElementById("rp-greeting").textContent = "Hi, "+(p.reseller_name||"there")+"!";
+
+    const levelName = p.current_level ? p.current_level.level_name : "—";
+    const levelColor = levelName==="platinum"?"#5b6b7a":levelName==="gold"?"#c9a227":"#9aa5b1";
+    const discount = p.current_level ? p.current_level.discount_percent : 0;
+
+    const milestoneCards = (p.milestone_progress||[]).map(function(m){
+      const pct = Math.min(100, Math.round((m.current_value/m.target_value)*100));
+      return '<div class="card" style="margin:6px 0;"><p style="margin:0 0 4px;font-weight:600;">'+m.name+(m.achieved?' 🎉 Achieved!':'')+'</p>'+
+        '<div style="background:#eee;border-radius:8px;height:14px;overflow:hidden;"><div style="background:linear-gradient(90deg,#e91e63,#ff9800);height:100%;width:'+pct+'%;"></div></div>'+
+        '<p class="muted" style="margin:4px 0 0;font-size:0.75rem;">Rs '+m.current_value+' of Rs '+m.target_value+' · ends '+m.end_date+'</p></div>';
+    }).join("");
+
+    const orderRows = (p.orders||[]).map(function(o){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+o.id+'</p><p class="lc-sub">'+o.status+(o.tracking_id?' · Tracking: '+o.tracking_id:'')+'</p></div></div>';}).join("");
+
+    const rewardCards = (p.reward_catalog||[]).map(function(r){
+      const affordable = p.spendable_balance >= r.points_cost;
+      return '<div class="card" style="margin:6px 0;'+(affordable?'':'opacity:0.5;')+'"><p style="margin:0;font-weight:600;">'+r.name+'</p><p class="muted" style="margin:2px 0 8px;">'+r.points_cost+' points</p>'+
+        (affordable?'<button class="secondary btn-sm" onclick="requestReward(\''+r.id+'\')">Redeem</button>':'<p class="muted" style="font-size:0.75rem;">Not enough points yet</p>')+'</div>';
+    }).join("");
+
+    const redemptionRows = (p.my_redemptions||[]).map(function(r){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+r.reward_name+'</p><p class="lc-sub">'+r.status+(r.tracking_id?' · '+r.courier+' '+r.tracking_id:'')+'</p></div></div>';}).join("");
+
+    document.getElementById("rp-content").innerHTML =
+      '<div class="card" style="background:linear-gradient(135deg,#fff3e0,#fce4ec);text-align:center;padding:20px;">'+
+        '<p style="font-size:2.2rem;margin:0;font-weight:700;color:#e91e63;">🪙 '+p.spendable_balance+'</p>'+
+        '<p class="muted" style="margin:2px 0 10px;">points available to spend</p>'+
+        '<span style="display:inline-block;background:'+levelColor+';color:#fff;padding:4px 16px;border-radius:20px;font-weight:700;text-transform:uppercase;letter-spacing:1px;font-size:0.8rem;">'+levelName+'</span>'+
+        '<p class="muted" style="margin:8px 0 0;font-size:0.8rem;">'+p.points_this_year+' points this year · '+discount+'% discount on your orders</p>'+
+      '</div>'+
+      (milestoneCards?'<h4>Active challenges</h4>'+milestoneCards:'')+
+      '<h4>My orders</h4>'+(orderRows||'<p class="muted">Nothing yet.</p>')+
+      '<h4>Rewards you can redeem</h4>'+(rewardCards||'<p class="muted">Nothing in the catalog right now.</p>')+
+      '<h4>My redemption history</h4>'+(redemptionRows||'<p class="muted">Nothing redeemed yet.</p>')+
+      '<div id="rp-msg"></div>';
+  }catch(e){document.getElementById("rp-content").textContent=e.message;}
+}
+async function requestReward(rewardItemId){
+  if(!confirm("Request this reward? Points will be deducted once the admin approves it.")) return;
+  try{
+    await apiFetch("/reseller-reward-redemptions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({reward_item_id:rewardItemId})});
+    loadResellerPortal();
+  }catch(e){ document.getElementById("rp-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
+}
+async function applyResellerDiscount(){
+  try{
+    const custSel = document.getElementById("s-customer-select");
+    const custParty = allPartiesCache.find(function(p){return p.id===custSel.value;});
+    if(!custParty || custParty.type!=="reseller") return;
+    const status = await apiFetch("/reseller-status/"+custParty.id);
+    const discountPercent = status.current_level ? status.current_level.discount_percent : 0;
+    if(!discountPercent) return;
+    for(const row of document.querySelectorAll("#s-lines .card")){
+      const itemId = row.querySelector(".sale-line-item").value;
+      if(!itemId) continue;
+      const item = await apiFetch("/items/"+itemId);
+      if(item.price==null) continue;
+      const priceField = row.querySelector(".sale-line-price");
+      priceField.value = (item.price*(1-discountPercent/100)).toFixed(2);
+    }
+  }catch(e){}
+}
 async function shipSelectedStock(){
   try{
     const checked = Array.from(document.querySelectorAll(".mystock-check:checked"));
@@ -1398,7 +1482,8 @@ async function markJobDone(id){
     const laborField = document.getElementById("mywork-labor-cost-"+id);
     const laborCost = laborField && laborField.value ? parseFloat(laborField.value) : null;
     const res = await apiFetch("/work-orders/"+id+"/mark-done",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({labor_cost:laborCost})});
-    document.getElementById("mywork-done-msg").innerHTML='<p style="color:var(--ok);">Done — '+res.quantity_done+' added to your own stock.</p>';
+    document.getElementById("mywork-done-msg").innerHTML='<p style="color:var(--ok);">Done — '+res.quantity_done+' added to your own stock.</p>'+
+      '<div class="card" style="background:#fff8e1;"><p class="muted" style="margin:0 0 4px;">Write this ID on a tag and attach it to the piece before shipping:</p><p style="font-size:1.3rem;font-weight:700;margin:0;">'+res.finished_lot_id+'</p></div>';
     viewMyWorkOrder(id); loadMyWork();
   }catch(e){ document.getElementById("mywork-done-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
@@ -1472,7 +1557,7 @@ async function openDispatchAction(dispatchId){
       '<table><tr><th>Item</th><th>Qty</th><th></th></tr>'+itemRows+'</table>'+
       (allPicked && d.status!=="shipped" ? '<label>Courier</label><input id="ship-courier"><label>Tracking (optional)</label><input id="ship-tracking">'+
         '<button class="secondary" onclick="shipThisDispatch(\''+d.id+'\')">Pack & Send</button><div id="ship-msg"></div>' : '')+
-      (d.status==="pending_pick"?'<button class="secondary" onclick="cancelDispatch(\''+d.id+'\')" style="margin-top:10px;color:var(--warn);border-color:var(--warn);">Cancel this dispatch</button><div id="cancel-msg"></div>':'')+
+      (["pending_pick","picked"].includes(d.status)?'<button class="secondary" onclick="cancelDispatch(\''+d.id+'\')" style="margin-top:10px;color:var(--warn);border-color:var(--warn);">Cancel this dispatch</button><div id="cancel-msg"></div>':'')+
       '</div>';
   }catch(e){showError(e.message);}
 }
@@ -1571,8 +1656,8 @@ async function loadReceiveQueue(){
 async function openReceiveConfirm(dispatchId){
   try{
     const d = await apiFetch("/dispatches/"+dispatchId);
-    const rows = d.items.map(function(it){return '<tr><td>'+it.item_name+' ('+(it.item_code||'-')+')</td><td>'+(it.lot_id||'-')+'</td><td>'+it.scanned_quantity+'</td><td><input id="recv-qty-'+it.id+'" type="number" step="0.1" value="'+it.scanned_quantity+'" style="width:80px;"></td>'+
-      (it.lot_id?'<td><button type="button" class="secondary btn-sm" onclick=\'printQR("'+(it.item_code||it.item_id)+"|"+it.lot_id+'","'+it.lot_id+'")\'>Get QR</button></td>':'<td></td>')+'</tr>';}).join("");
+    const rows = d.items.map(function(it){return '<tr><td>'+it.item_name+' ('+(it.item_code||'-')+')</td><td>'+(it.resolved_origin||'-')+'</td><td>'+it.scanned_quantity+'</td><td><input id="recv-qty-'+it.id+'" type="number" step="0.1" value="'+it.scanned_quantity+'" style="width:80px;"></td>'+
+      (it.resolved_origin?'<td><button type="button" class="secondary btn-sm" onclick=\'printQR("'+(it.item_code||it.item_id)+"|"+it.resolved_origin+'","'+it.resolved_origin+'")\'>Get QR</button></td>':'<td></td>')+'</tr>';}).join("");
     const isReturnShipment = d.dispatch_type==="return_shipment";
     let reconHtml = "";
     if(isReturnShipment && d.items.length){
@@ -1586,14 +1671,25 @@ async function openReceiveConfirm(dispatchId){
           '<input type="hidden" id="recon-issue-ids" value="'+preview.lines.map(function(l){return l.material_issue_id;}).join(",")+'">';
       }
     }
+    const isAdmin = getSession().role==="admin";
     document.getElementById("receive-confirm-area").innerHTML = '<div class="card"><h4 style="margin-top:0;">Confirm '+d.id+'</h4>'+
       '<p class="muted">From: '+(d.from_site_name||"-")+'</p>'+
-      '<table><tr><th>Item</th><th>Lot</th><th>Shipped</th><th>Actually received</th><th></th></tr>'+rows+'</table>'+
+      '<table><tr><th>Item</th><th>Origin ID</th><th>Shipped</th><th>Actually received</th><th></th></tr>'+rows+'</table>'+
       (isReturnShipment?'<label>Labor cost for this job</label><input id="recv-labor-cost" type="number" step="0.01">':'')+
       reconHtml+
-      '<button class="secondary" onclick="submitReceiveConfirm(\''+d.id+'\')">Confirm</button><div id="recv-confirm-msg"></div></div>';
+      '<button class="secondary" onclick="submitReceiveConfirm(\''+d.id+'\')">Confirm</button>'+
+      (isAdmin?' <button class="secondary" onclick="closeDispatchAsLoss(\''+d.id+'\')" style="color:var(--warn);border-color:var(--warn);">This never arrived — close as loss</button>':'')+
+      '<div id="recv-confirm-msg"></div></div>';
     window.__pendingDispatchItems = d.items;
   }catch(e){showError(e.message);}
+}
+async function closeDispatchAsLoss(dispatchId){
+  if(!confirm("Close this dispatch as a loss? This records the material as written off — the raw balance sheet loss, not just removing it from the queue. This can't be undone.")) return;
+  try{
+    const res = await apiFetch("/dispatches/"+dispatchId+"/close-as-loss",{method:"POST",headers:{"Content-Type":"application/json"}});
+    document.getElementById("recv-confirm-msg").innerHTML='<p style="color:var(--ok);">Closed as a loss — Rs '+res.total_loss_value.toFixed(2)+' recorded.</p>';
+    loadReceiveQueue();
+  }catch(e){ document.getElementById("recv-confirm-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
 async function submitReceiveConfirm(dispatchId){
   try{
@@ -1611,12 +1707,22 @@ async function submitReceiveConfirm(dispatchId){
     for(const created of (res.created_lot_ids||[])){
       let itemCode = created.item_id;
       try{ const itemDetail = await apiFetch("/items/"+created.item_id); itemCode = itemDetail.item_code||created.item_id; }catch(e){}
-      qrButtons.push('<button class="secondary btn-sm" onclick=\'printQR("'+itemCode+"|"+created.lot_id+'","'+created.lot_id+'")\' style="margin:4px 4px 0 0;">Get QR — '+created.lot_id+'</button>');
+      const originForQR = created.resolved_origin||created.lot_id;
+      qrButtons.push('<div style="margin:4px 0;"><button class="secondary btn-sm" onclick=\'printQR("'+itemCode+"|"+originForQR+'","'+originForQR+'")\'>Get QR — '+originForQR+'</button> '+
+        '<button class="secondary btn-sm" onclick="voidReceipt(\''+created.lot_id+'\',\'recv-confirm-msg\')" style="color:var(--warn);border-color:var(--warn);">Wrong item — void this</button></div>');
     }
     document.getElementById("recv-confirm-msg").innerHTML='<p style="color:var(--ok);">Confirmed — stock now credited.'+(res.work_order_closed?' Work order closed.':'')+reconMsg+'</p>'+
       (qrButtons.length?'<div>'+qrButtons.join("")+'</div>':'');
     loadReceiveQueue(); loadReceiveHistory();
   }catch(e){showError(e.message);}
+}
+async function voidReceipt(lotId, msgElId){
+  if(!confirm("Void this receipt? This reverses whatever it credited — the correct receipt will need to be entered separately afterward.")) return;
+  try{
+    await apiFetch("/item-lots/"+lotId+"/void-receipt",{method:"POST",headers:{"Content-Type":"application/json"}});
+    document.getElementById(msgElId).innerHTML='<p style="color:var(--ok);">Voided. Enter the correct receipt separately.</p>';
+    loadReceiveQueue(); loadReceiveHistory(); loadPOReceiveQueue();
+  }catch(e){ document.getElementById(msgElId).innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
 async function loadPOReceiveQueue(){
   try{
@@ -1648,7 +1754,8 @@ async function receivePOLineInline(lineId){
       for(const po of poList){ const match = po.items.find(function(i){return String(i.id)===String(lineId);}); if(match && match.item_id){ const itemDetail = await apiFetch("/items/"+match.item_id); itemCode = itemDetail.item_code||match.item_id; } }
     }catch(e){}
     document.getElementById("po-recv-msg-"+lineId).innerHTML = '<p style="color:var(--ok);">Received — lot '+res.lot_id+'.</p>'+
-      '<button class="secondary btn-sm" onclick=\'printQR("'+itemCode+"|"+res.lot_id+'","'+res.lot_id+'")\'>Get QR</button>';
+      '<button class="secondary btn-sm" onclick=\'printQR("'+itemCode+"|"+res.lot_id+'","'+res.lot_id+'")\'>Get QR</button> '+
+      '<button class="secondary btn-sm" onclick="voidReceipt(\''+res.lot_id+'\',\'po-recv-msg-'+lineId+'\')" style="color:var(--warn);border-color:var(--warn);">Wrong item — void this</button>';
     loadPOReceiveQueue();
   }catch(e){ document.getElementById("po-recv-msg-"+lineId).innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
@@ -1793,6 +1900,7 @@ async function viewCO(id){
     if(o.sale) html+='<p>Sale: '+o.sale.id+' — Rs '+o.sale.total_amount+'</p>';
     if(!["billed","shipped","cancelled"].includes(o.status)){
       html += '<button class="secondary" onclick="billCOViaSales(\''+o.id+'\')">Bill via Sales</button><p class="muted">Opens the Sales tab, pre-filled with this order\'s lines — full control over tax and pricing there.</p>';
+      html += '<button class="secondary" onclick="cancelCO(\''+o.id+'\')" style="border-color:var(--warn);color:var(--warn);">Cancel this order</button><div id="co-cancel-msg"></div>';
     }
     if(o.status==="billed"){
       html+='<p class="muted">Billed — this now shows up in the Dispatch tab to be picked and shipped.</p>';
@@ -1860,6 +1968,13 @@ async function billCOViaSales(coId){
       if(opt) document.getElementById("s-customer-select").value = order.customer_party_id;
     }
   }catch(e){showError(e.message);}
+}
+async function cancelCO(coId){
+  if(!confirm("Cancel this order? This can't be undone.")) return;
+  try{
+    await apiFetch("/customer-orders/"+coId,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"cancelled"})});
+    viewCO(coId); loadCOs(); loadDashboard();
+  }catch(e){ document.getElementById("co-cancel-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
 async function createSale(){
   try{

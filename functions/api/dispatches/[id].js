@@ -7,7 +7,9 @@ export async function onRequestGet({ params, env }) {
   if (!dispatch) return Response.json({ error: "not found" }, { status: 404 });
 
   const { results: items } = await env.DB.prepare(
-    `SELECT di.*, i.name AS item_name, i.item_code FROM dispatch_items di LEFT JOIN items i ON i.id = di.item_id WHERE di.dispatch_id = ?`
+    `SELECT di.*, i.name AS item_name, i.item_code, COALESCE(l.origin_lot_id, l.id) AS resolved_origin
+     FROM dispatch_items di LEFT JOIN items i ON i.id = di.item_id LEFT JOIN item_lots l ON l.id = di.lot_id
+     WHERE di.dispatch_id = ?`
   ).bind(params.id).all();
 
   return Response.json({ ...dispatch, items });

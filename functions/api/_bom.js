@@ -22,6 +22,19 @@ export async function genuinelyAvailable(env, lotId) {
   return { lot, available: Math.min(lotOwnAvailable, siteWideAvailable) };
 }
 
+// Resolves the TRUE origin for a lot being created from an existing one —
+// if the source lot already has its own recorded origin, inherit that
+// directly (never chain through intermediate references), otherwise the
+// source itself is the origin. This is what lets one printed QR code stay
+// valid through the batch's entire life, no matter how many times it's
+// split or moved afterward.
+export async function resolveOrigin(env, sourceLotId) {
+  if (!sourceLotId) return null;
+  const sourceLot = await env.DB.prepare("SELECT id, origin_lot_id FROM item_lots WHERE id = ?").bind(sourceLotId).first();
+  if (!sourceLot) return null;
+  return sourceLot.origin_lot_id || sourceLot.id;
+}
+
 async function nextId(env, table, prefix, pad = 6) {
   const row = await env.DB.prepare(`SELECT COUNT(*) AS c FROM ${table}`).first();
   return `${prefix}-` + String((row?.c || 0) + 1).padStart(pad, "0");
@@ -73,10 +86,11 @@ export async function reconcileMaterialIssue(env, issueId, { quantity_returned_s
   if (returned > 0) {
     const site = destination_site_id || issue.worker_site_id;
     newLotId = await nextId(env, "item_lots", "LOT");
+    const originForReturn = await resolveOrigin(env, issue.lot_id);
     await env.DB.prepare(
-      `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, notes)
-       VALUES (?, ?, ?, ?, ?, 'transfer_in', ?, ?)`
-    ).bind(newLotId, refLot.item_id, site, returned, returned, issueId, `Returned unused from ${issue.worker_site_id}`).run();
+      `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, origin_lot_id, notes)
+       VALUES (?, ?, ?, ?, ?, 'transfer_in', ?, ?, ?)`
+    ).bind(newLotId, refLot.item_id, site, returned, returned, issueId, originForReturn, `Returned unused from ${issue.worker_site_id}`).run();
     await env.DB.prepare(
       "INSERT INTO item_movements (lot_id, item_id, event_type, to_site_id, quantity, work_order_id, notes, created_by) VALUES (?, ?, 'returned', ?, ?, ?, ?, ?)"
     ).bind(newLotId, refLot.item_id, site, returned, issue.work_order_id, `Material return on ${issueId}`, actorName || "system").run();

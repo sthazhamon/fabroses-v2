@@ -1,1 +1,1 @@
-INSERT INTO users (name, username, pin_hash, pin_salt, role, token_version, active) VALUES ('FabRoses', 'fabrosesadmin', '76ca96d9a6d4db10f78f1018c57982170a0d32d827fbfe5a654a395f44d32f78', '6b4370327dd52e9cd4f9aade16d3c213', 'admin', 1, 1);
+INSERT INTO users (name, username, pin_hash, pin_salt, role, token_version, active) VALUES ('Fab Roses', 'fabrosesadmin', '018249323d8d51a41d56f1ce093f45d0b6d6a42eddb11ba348e6a31bd1f33ec8', '776c3adc3c2b58523a6749b526b18634', 'admin', 1, 1);

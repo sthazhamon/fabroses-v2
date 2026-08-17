@@ -1,3 +1,5 @@
+import { resolveOrigin } from "../../_bom.js";
+
 async function nextId(env, table, prefix, pad = 6) {
   const row = await env.DB.prepare(`SELECT COUNT(*) AS c FROM ${table}`).first();
   return `${prefix}-` + String((row?.c || 0) + 1).padStart(pad, "0");
@@ -47,10 +49,11 @@ export async function onRequestPost({ request, env, params, data }) {
     const refLot = await env.DB.prepare("SELECT item_id FROM item_lots WHERE id = ?").bind(issue.lot_id).first();
     if (deltaWasted < 0) {
       const creditLotId = await nextId(env, "item_lots", "LOT");
+      const originForCredit = await resolveOrigin(env, issue.lot_id);
       await env.DB.prepare(
-        `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, notes)
-         VALUES (?, ?, ?, ?, ?, 'correction', ?, ?)`
-      ).bind(creditLotId, refLot.item_id, issue.worker_site_id, -deltaWasted, -deltaWasted, `RETEVT-${event.id}`, `Correction: waste reduced on return event ${event.id}`).run();
+        `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, origin_lot_id, notes)
+         VALUES (?, ?, ?, ?, ?, 'correction', ?, ?, ?)`
+      ).bind(creditLotId, refLot.item_id, issue.worker_site_id, -deltaWasted, -deltaWasted, `RETEVT-${event.id}`, originForCredit, `Correction: waste reduced on return event ${event.id}`).run();
     } else {
       const { results: workerLots } = await env.DB.prepare(
         "SELECT * FROM item_lots WHERE item_id = ? AND site_id = ? AND quantity_balance > 0 ORDER BY created_at ASC, id ASC"

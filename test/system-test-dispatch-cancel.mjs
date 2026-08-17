@@ -16,7 +16,7 @@ async function run() {
   const sitesMod = await import("../functions/api/sites.js");
   const itemsMod = await import("../functions/api/items.js");
   const lotsMod = await import("../functions/api/item-lots.js");
-  const { createDispatch, confirmPick } = await import("../functions/api/_dispatch.js");
+  const { createDispatch, confirmPick, shipDispatch } = await import("../functions/api/_dispatch.js");
   const cancelMod = await import("../functions/api/dispatches/[id]/cancel.js");
 
   const store = await (await sitesMod.onRequestPost({ request: req({ name: "Store", site_type: "store" }), env })).json();
@@ -35,16 +35,27 @@ async function run() {
   const lotAfter = await env.DB.prepare("SELECT quantity_balance FROM item_lots WHERE id = ?").bind(lot.id).first();
   assert(lotAfter.quantity_balance === 10, `CRITICAL: the source lot's balance is completely untouched (still 10) — nothing had physically moved yet, got ${lotAfter.quantity_balance}`);
 
-  section("=== Once picked, cancellation is correctly blocked ===");
+  section("=== Cancelling while picked ALSO succeeds now, since nothing's physically moved ===");
   const lot2 = await (await lotsMod.onRequestPost({ request: req({ item_id: item.id, site_id: store.id, quantity: 10, source_type: "direct_intake" }), env, data: {} })).json();
   const dispatchId2 = await createDispatch(env, { dispatch_type: "stock_transfer", from_site_id: store.id, to_site_id: worker.id, items: [{ item_id: item.id, lot_id: lot2.id, expected_quantity: 5 }] });
   await confirmPick(env, dispatchId2, { item_id: item.id, lot_id: lot2.id, scanned_quantity: 5 });
 
-  const blockedAttempt = await (await cancelMod.onRequestPost({ env, params: { id: dispatchId2 } })).json();
-  assert(blockedAttempt.error, "cancelling a dispatch that's already been picked is correctly rejected");
+  const pickedCancelRes = await (await cancelMod.onRequestPost({ env, params: { id: dispatchId2 } })).json();
+  assert(pickedCancelRes.ok, "cancelling a picked-but-not-yet-shipped dispatch now correctly succeeds");
+  const lot2After = await env.DB.prepare("SELECT quantity_balance FROM item_lots WHERE id = ?").bind(lot2.id).first();
+  assert(lot2After.quantity_balance === 10, `the lot is still untouched even after being picked, confirming this was genuinely safe to cancel, got ${lot2After.quantity_balance}`);
 
-  const dispatch2After = await env.DB.prepare("SELECT status FROM dispatches WHERE id = ?").bind(dispatchId2).first();
-  assert(dispatch2After.status === "picked", "the dispatch correctly stays at picked, unaffected by the rejected cancel attempt");
+  section("=== Once actually shipped, cancellation is correctly blocked ===");
+  const lot3 = await (await lotsMod.onRequestPost({ request: req({ item_id: item.id, site_id: store.id, quantity: 10, source_type: "direct_intake" }), env, data: {} })).json();
+  const dispatchId3 = await createDispatch(env, { dispatch_type: "stock_transfer", from_site_id: store.id, to_site_id: worker.id, items: [{ item_id: item.id, lot_id: lot3.id, expected_quantity: 5 }] });
+  await confirmPick(env, dispatchId3, { item_id: item.id, lot_id: lot3.id, scanned_quantity: 5 });
+  await shipDispatch(env, dispatchId3, {}, "store staff");
+
+  const blockedAttempt = await (await cancelMod.onRequestPost({ env, params: { id: dispatchId3 } })).json();
+  assert(blockedAttempt.error, "cancelling a dispatch that's already shipped is correctly rejected");
+
+  const dispatch3After = await env.DB.prepare("SELECT status FROM dispatches WHERE id = ?").bind(dispatchId3).first();
+  assert(dispatch3After.status === "shipped", "the dispatch correctly stays at shipped, unaffected by the rejected cancel attempt");
 
   section("=== A non-existent dispatch is handled cleanly ===");
   const notFoundAttempt = await (await cancelMod.onRequestPost({ env, params: { id: "DSP-999999" } })).json();

@@ -1,112 +1,86 @@
-# FabRoses Business System — this session's build
+# FabRoses Business System - this session's build
 
-**360 automated tests, all passing.** Run `npm test` to verify yourself
+**439 automated tests, all passing.** Run `npm test` to verify yourself
 before trusting this with real data.
 
-This was the largest single batch of this project — 13 distinct items,
-found through actual use of the previous build rather than planned in
-advance. Below is what changed, with the two hardest problems explained
-in enough detail to actually trust the fix, not just the pass count.
+This is the largest single batch in this project's history - thirteen
+distinct items, most found through actual use of the previous build
+rather than planned in advance. The centerpiece is a complete reseller
+gamification system, built alongside a genuine traceability redesign and
+several real correction mechanisms. Below is what changed, with the
+hardest problems explained in enough detail to actually trust the fix.
 
-## The most important fix: Mark Job Done was consuming too much
+## The reseller gamification system
 
-Reported directly: issuing 10m of raw material for a job whose BOM only
-needed 6m left zero remaining stock instead of the expected 4m leftover.
-The cause was worse than a display bug — the function closing out
-material issues was built for a different situation (the old
-confirm-receive flow, where by that point anything unreturned really was
-gone) and got reused here without noticing that assumption doesn't hold.
-It was consuming the *entire* issued amount, not just what the job
-actually needed.
+A dedicated portal (fixing a "plain page" gap that dated back to the very
+start of this project), points earned proportional to order value but
+only once a sale is genuinely fully paid (not at billing), a yearly-
+resetting level standing completely independent of a never-resetting
+spendable balance, an admin-curated rewards catalog with an approval-and-
+ship fulfillment flow, and time-bound milestones an admin can target at
+specific resellers.
 
-Fixed with a proper per-BOM-line allocation: for each raw material, exactly
-the BOM-expected amount is consumed across the job's open issues (oldest
-first), and anything issued beyond that stays genuinely untouched as real
-leftover stock — nothing needs to be "returned," since it never physically
-moved. Proven against the exact reported numbers, plus a second test
-allocating correctly across two separate issues at once.
+Three real bugs surfaced while building this, all caught by tests
+actually failing, not by guessing:
 
-## Real accounting, not just inventory tracking
+1. A column-name collision - selecting rmt.*, m.* together silently let
+   m.id overwrite rmt.id in the resulting row, meaning the "achieved"
+   marker on a milestone was never actually being written, despite the
+   code appearing to set it correctly.
+2. An overly-restrictive date check - requiring "today" to fall within a
+   milestone's window broke any scenario testing a different month than
+   the real current date, when the only thing that should matter is
+   whether the milestone has expired.
+3. A real security gap - the redemption-request endpoint originally
+   accepted any reseller_party_id in the request body, meaning a
+   reseller login could technically request rewards, or view redemption
+   history, on behalf of a completely different reseller. Fixed by
+   forcing a reseller-role login to only ever act on their own identity.
 
-Raw material cost and labor cost were always tracked on lots and work
-orders for display purposes, but neither had ever once been posted as an
-actual ledger entry — COGS on the P&L was always going to show zero,
-regardless of anything else. Mark Job Done now posts both:
+Also proven directly: overcommitment protection across multiple pending
+reward requests, and the genuine independence of level standing from
+spendable balance.
 
-- **Raw material**: debits Raw Material Consumed, credits the raw-material
-  inventory asset, using each lot's own recorded cost.
-- **Labor**: entered per job at Mark Job Done, mirroring exactly how a
-  Supplier Bill works — debits Labor COGS, credits the worker's own party
-  account, creating a liability that a normal Worker Payment settles. The
-  existing pending-payment window for workers keeps working unchanged.
+## The traceability redesign
 
-## The material-return correction mechanism
+Every lot now carries a permanent origin reference, inherited unchanged
+through every split and transfer, proven with a test tracking the same
+physical batch through three real hops and confirming the same original
+delivery stays the recorded origin the entire way. QR printing now
+encodes that origin rather than a transient lot ID, and Mark Job Done
+now prominently displays the finished piece's ID for a worker to write
+down before shipping.
 
-A wrong quantity entered on a return had no way to be fixed and no
-confirmation step to catch it before it happened. This turned out to need
-several connected pieces:
+## Correction and safety mechanisms
 
-- A review step before any return commits, showing exactly what's about
-  to be recorded.
-- Past return entries are now visible for the first time — there was
-  previously no way to even see one, let alone correct it.
-- A correction action that computes the difference automatically (you
-  enter what the figure *should* have been, not the delta yourself), and
-  — this is the part worth trusting the tests for — refuses to correct
-  downward once any of that returned stock has already been consumed,
-  shipped, or sold elsewhere. The original entry is never rewritten; a
-  correction sits alongside it, visible in the trail.
+- Void a wrong receipt - safely reverses either a PO-line receipt or a
+  dispatch confirmation, checking first that nothing's already been
+  consumed from what it created.
+- Dispatch cancellation extended to "picked," not just "pending_pick" -
+  the boundary now correctly sits at "shipped."
+- Admin close-as-loss for a shipped-but-never-confirmed dispatch - posts
+  a real ledger entry, visible in the movement register.
 
 ## Everything else in this batch
 
-- **Dispatch cancellation** — while still pending_pick, proven to touch
-  nothing and correctly blocked once anything's been picked.
-- **Five display fixes** — part numbers and lot numbers now show on the
-  Receive confirm screen (with a QR available before confirming, not
-  after) and in Stock by Site; the Supplier Bills PO checklist shows the
-  full ordered/received/billed/outstanding breakdown; a bill date field
-  and a live computed amount now exist.
-- **Customer Order reference price** — purely informational, proven to
-  have zero effect on Sales billing.
-- **Supplier Bills tax** — a real per-line tax field, with the journal
-  entry correctly split between the base expense and a new Tax Input
-  Credit account, mirroring how Sales tax already works.
-- **PO short-close** — a partially-received line can be deliberately
-  marked done without needing the rest, correctly resolving the PO's
-  overall status while keeping the original figures on record.
-- **PO line editing** — allowed only before any receiving or billing has
-  happened against a line, to avoid silently disagreeing with history.
-- **The Material Movement Register** — a new dedicated tab, filterable by
-  date, item, and site, built entirely from data this system was already
-  recording comprehensively but never surfaced as its own report.
+Dashboard highlights for unactioned orders and overdue work orders, a
+Customer Order cancellation button, and the discount auto-apply at
+billing for a reseller's current level.
 
 ## Testing this yourself
 
-```
-npm test
-```
-360 tests across 41 files.
+npm test - 439 tests across 51 files.
 
 ## Deployment
 
-The schema changed meaningfully this round — new columns on
-`customer_order_items`, `supplier_bill_items`, and `material_return_events`,
-a new `short_closed` status value, and two new chart-of-accounts entries
-(Tax Input Credit, and the pre-existing Raw Material/Labor COGS accounts
-are now actually used). Same process as always:
-```
-wrangler d1 delete fabroses-db
-wrangler d1 create fabroses-db
-wrangler d1 execute fabroses-db --file=./schema.sql --remote
-```
-If updating a live database rather than deploying fresh, these column
-additions won't apply automatically — D1's schema file only creates
-tables that don't exist yet, it doesn't alter existing ones.
+The schema changed substantially this round - six new tables for
+gamification, a new origin field on lots, a new system_settings table,
+and a new loss-tracking account. Same process as always: delete and
+recreate the D1 database, then load the schema file.
 
 ## Honestly still open
 
 - The item-photo cross-contamination bug from earlier in this project.
-- The mobile card/bottom-nav layout still hasn't been confirmed on an
-  actual phone by a human.
-- Rework jobs still use the old single-item ship-back flow, unchanged —
-  the Mark Job Done redesign only ever covered production jobs.
+- The mobile layout fix from last round still needs confirming on a
+  real phone.
+- Rework jobs still use the old ship-back flow, unchanged.

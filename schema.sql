@@ -138,11 +138,13 @@ CREATE TABLE item_lots (
   quantity_balance REAL NOT NULL,
   source_type TEXT NOT NULL,
   source_reference TEXT,
+  origin_lot_id TEXT REFERENCES item_lots(id),
   cost_total REAL,
   notes TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX idx_lots_item ON item_lots(item_id);
+CREATE INDEX idx_lots_origin ON item_lots(origin_lot_id);
 CREATE INDEX idx_lots_site ON item_lots(site_id);
 
 CREATE TABLE item_movements (
@@ -395,6 +397,7 @@ INSERT INTO accounts (code, name, account_type) VALUES
   ('3100', 'Sales Refunds', 'revenue'),
   ('4000', 'Raw Material Consumed', 'cogs'),
   ('4100', 'Labor', 'cogs'),
+  ('4200', 'Inventory Loss', 'cogs'),
   ('5000', 'Expenses', 'expense');
 
 -- ============================================================
@@ -534,4 +537,94 @@ CREATE TABLE parties (
   bonus_rule TEXT,
   account_id INTEGER,
   created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- ============================================================
+-- RESELLER GAMIFICATION
+-- ============================================================
+
+-- Append-only log of every points-affecting event. The reseller's
+-- spendable balance is the sum of everything here, and never resets.
+-- Level standing is computed separately, from just the 'earned' rows
+-- within the current year — see reseller_level_config below.
+CREATE TABLE reseller_points_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reseller_party_id TEXT NOT NULL REFERENCES parties(id),
+  event_type TEXT NOT NULL, -- earned | spent | milestone_bonus
+  points REAL NOT NULL, -- positive for earned/bonus, negative for spent
+  reference_type TEXT, -- sale | redemption | milestone
+  reference_id TEXT,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_points_ledger_reseller ON reseller_points_ledger(reseller_party_id);
+
+-- Admin-configured level thresholds and discounts. min_points_this_year
+-- is compared against a reseller's SUM of 'earned' points within the
+-- current calendar year only — this is what resets yearly, completely
+-- separate from the spendable balance above.
+CREATE TABLE reseller_level_config (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  level_name TEXT NOT NULL UNIQUE,
+  min_points_this_year REAL NOT NULL,
+  discount_percent REAL NOT NULL DEFAULT 0,
+  sort_order INTEGER DEFAULT 0
+);
+
+-- Admin-curated catalog of specific products a reseller can redeem
+-- points for — not run through the full Sales/tax machinery, since a
+-- reward isn't really an invoiced transaction.
+CREATE TABLE reseller_reward_items (
+  id TEXT PRIMARY KEY,
+  item_id TEXT REFERENCES items(id),
+  name TEXT NOT NULL,
+  points_cost REAL NOT NULL,
+  active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- A reseller's request to redeem a reward. Points are only deducted once
+-- admin approves — see reseller-reward-redemptions.js for that logic.
+CREATE TABLE reseller_reward_redemptions (
+  id TEXT PRIMARY KEY,
+  reseller_party_id TEXT NOT NULL REFERENCES parties(id),
+  reward_item_id TEXT NOT NULL REFERENCES reseller_reward_items(id),
+  points_spent REAL NOT NULL,
+  status TEXT DEFAULT 'requested',
+  courier TEXT,
+  tracking_id TEXT,
+  requested_at TEXT DEFAULT (datetime('now')),
+  approved_at TEXT,
+  shipped_at TEXT
+);
+
+-- Time-bound campaigns an admin announces, targeted at specific
+-- resellers, with an Rs-value goal and a perk on completion.
+CREATE TABLE reseller_milestones (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  target_value REAL NOT NULL,
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  perk_type TEXT NOT NULL,
+  perk_points REAL,
+  perk_reward_item_id TEXT REFERENCES reseller_reward_items(id),
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Which specific resellers a milestone applies to, and whether each has
+-- achieved it yet.
+CREATE TABLE reseller_milestone_targets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  milestone_id TEXT NOT NULL REFERENCES reseller_milestones(id),
+  reseller_party_id TEXT NOT NULL REFERENCES parties(id),
+  achieved_at TEXT,
+  redemption_id TEXT REFERENCES reseller_reward_redemptions(id)
+);
+
+-- Simple key-value store for small, single-value admin settings, like the
+-- reseller points-per-rupee rate.
+CREATE TABLE system_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
 );

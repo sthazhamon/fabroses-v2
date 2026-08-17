@@ -27,6 +27,8 @@ const RULES = [
   { prefix: "/api/purchase-orders", roles: ["admin", "accountant", "dispatch"] },
   { prefix: "/api/purchase-order-items", roles: ["admin", "accountant", "dispatch"] },
   { prefix: "/api/customer-orders", roles: ["admin", "accountant"] },
+  { prefix: "/api/reseller-portal", roles: ["admin", "accountant", "reseller"] },
+  { prefix: "/api/reseller-reward-redemptions", roles: ["admin", "accountant", "reseller"] },
   { prefix: "/api/material-inward", roles: ["admin", "accountant", "dispatch"] },
   { prefix: "/api/worker-place", roles: ["admin", "worker"] },
   // default: any signed-in staff member except reseller (items, sites read,

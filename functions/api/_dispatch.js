@@ -1,5 +1,5 @@
 import { nextId } from "./_ledger.js";
-import { reconcileMaterialIssue } from "./_bom.js";
+import { reconcileMaterialIssue, resolveOrigin } from "./_bom.js";
 
 export async function createDispatch(env, { dispatch_type, from_site_id, to_site_id, items, related_work_order_id, related_customer_order_id, related_purchase_order_id }) {
   const id = await nextId(env, "dispatches", "DSP");
@@ -101,7 +101,7 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
       }
 
       finishedLotId = await nextId(env, "item_lots", "LOT");
-      createdLotIds.push({ lot_id: finishedLotId, item_id: item.item_id });
+      createdLotIds.push({ lot_id: finishedLotId, item_id: item.item_id, resolved_origin: finishedLotId });
       await env.DB.prepare(
         `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, cost_total, notes)
          VALUES (?, ?, ?, ?, ?, 'work_order_output', ?, ?, ?)`
@@ -148,11 +148,12 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
     }
 
     const newLotId = await nextId(env, "item_lots", "LOT");
-    createdLotIds.push({ lot_id: newLotId, item_id: item.item_id });
+    const originForTransfer = await resolveOrigin(env, item.lot_id);
+    createdLotIds.push({ lot_id: newLotId, item_id: item.item_id, resolved_origin: originForTransfer || newLotId });
     await env.DB.prepare(
-      `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, notes)
-       VALUES (?, ?, ?, ?, ?, 'transfer_in', ?, ?)`
-    ).bind(newLotId, item.item_id, dispatch.to_site_id, conf.received_quantity, conf.received_quantity, dispatchId, `Received via dispatch ${dispatchId}`).run();
+      `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, origin_lot_id, notes)
+       VALUES (?, ?, ?, ?, ?, 'transfer_in', ?, ?, ?)`
+    ).bind(newLotId, item.item_id, dispatch.to_site_id, conf.received_quantity, conf.received_quantity, dispatchId, originForTransfer, `Received via dispatch ${dispatchId}`).run();
     await env.DB.prepare(
       `INSERT INTO item_movements (lot_id, item_id, event_type, to_site_id, quantity, work_order_id, dispatch_id, notes, created_by)
        VALUES (?, ?, 'transferred_in', ?, ?, ?, ?, ?, ?)`

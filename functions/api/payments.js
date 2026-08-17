@@ -1,4 +1,5 @@
 import { postJournalEntry, getOrCreatePartyAccount, accountFixedId, nextId } from "./_ledger.js";
+import { awardPointsIfSaleFullyPaid, checkMilestoneAchievements } from "./_gamification.js";
 
 const DIRECTION_DEBIT_SIDE = { receivable: "cash", payable: "party", worker: "party" };
 
@@ -36,10 +37,20 @@ export async function onRequestPost({ request, env, data }) {
     "INSERT INTO payments (id, party_id, party_name, direction, amount, payment_date, method, reference, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(id, party_id, party.name, direction, amount, effectiveDate, method || null, reference || null, notes || null, data.user?.name || "unknown").run();
 
+  const pointsAwards = [];
+  const milestoneAchievements = [];
   for (const alloc of allocList) {
     if (!alloc.amount_applied) continue;
     await env.DB.prepare("INSERT INTO payment_allocations (payment_id, bill_type, bill_id, amount_applied) VALUES (?, ?, ?, ?)")
       .bind(id, alloc.bill_type, alloc.bill_id, alloc.amount_applied).run();
+    if (alloc.bill_type === "sale") {
+      const award = await awardPointsIfSaleFullyPaid(env, alloc.bill_id, data.user?.name);
+      if (award) {
+        pointsAwards.push(award);
+        const achievements = await checkMilestoneAchievements(env, award.reseller_party_id);
+        milestoneAchievements.push(...achievements);
+      }
+    }
   }
 
   if (amount > 0) {
@@ -51,5 +62,5 @@ export async function onRequestPost({ request, env, data }) {
     await postJournalEntry(env, { date: effectiveDate, description: notes || `Payment ${direction === "receivable" ? "from" : "to"} ${party.name}`, reference_type: "payment", reference_id: id, created_by: data.user?.name, lines });
   }
 
-  return Response.json({ id, unallocated: Math.round((amount - totalAllocated) * 100) / 100 });
+  return Response.json({ id, unallocated: Math.round((amount - totalAllocated) * 100) / 100, points_awards: pointsAwards, milestone_achievements: milestoneAchievements });
 }
