@@ -22,6 +22,7 @@ async function run() {
   const rawItem = await (await itemsMod.onRequestPost({ request: req({ item_type: "raw_material", name: "Kota", unit_of_measure: "metre" }), env })).json();
   const finishedItem = await (await itemsMod.onRequestPost({ request: req({ item_type: "finished_good", name: "Saree A", price: 5000 }), env })).json();
   const wrongItem = await (await itemsMod.onRequestPost({ request: req({ item_type: "finished_good", name: "Saree B", price: 4000 }), env })).json();
+  await env.DB.prepare("INSERT INTO item_bom (finished_item_id, raw_material_item_id, quantity_required) VALUES (?, ?, 1)").bind(finishedItem.id, rawItem.id).run();
   const lot = await (await lotsMod.onRequestPost({ request: req({ item_id: rawItem.id, site_id: store.id, quantity: 20, source_type: "direct_intake", cost_total: 4000 }), env, data: {} })).json();
   const wo = await (await woMod.onRequestPost({ request: req({ description: "Job 1", worker_site_id: worker.id, intended_item_id: finishedItem.id, target_quantity: 1 }), env })).json();
 

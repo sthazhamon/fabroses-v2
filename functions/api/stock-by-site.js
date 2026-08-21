@@ -4,7 +4,8 @@ export async function onRequestGet({ env }) {
   ).all();
 
   const { results: lots } = await env.DB.prepare(
-    `SELECT l.*, i.name AS item_name, i.item_code, i.item_type, i.unit_of_measure
+    `SELECT l.*, i.name AS item_name, i.item_code, i.item_type, i.unit_of_measure,
+            (SELECT ip.r2_key FROM item_photos ip WHERE ip.item_id = l.item_id ORDER BY ip.uploaded_at ASC LIMIT 1) AS item_photo_key
      FROM item_lots l LEFT JOIN items i ON i.id = l.item_id
      WHERE l.quantity_balance > 0
      ORDER BY l.site_id, i.item_type, l.created_at ASC`

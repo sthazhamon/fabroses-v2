@@ -398,6 +398,7 @@ INSERT INTO accounts (code, name, account_type) VALUES
   ('4000', 'Raw Material Consumed', 'cogs'),
   ('4100', 'Labor', 'cogs'),
   ('4200', 'Inventory Loss', 'cogs'),
+  ('4300', 'Reseller Points Redeemed', 'cogs'),
   ('5000', 'Expenses', 'expense');
 
 -- ============================================================
@@ -535,6 +536,7 @@ CREATE TABLE parties (
   target_amount REAL,
   target_period TEXT,
   bonus_rule TEXT,
+  manual_level_override TEXT,
   account_id INTEGER,
   created_at TEXT DEFAULT (datetime('now'))
 );

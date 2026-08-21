@@ -10,8 +10,21 @@ function deriveStatus(items) {
   return "ordered";
 }
 
-export async function onRequestGet({ env }) {
-  const { results: orders } = await env.DB.prepare("SELECT * FROM purchase_orders ORDER BY created_at DESC").all();
+export async function onRequestGet({ request, env }) {
+  const url = request ? new URL(request.url) : null;
+  const supplierPartyId = url?.searchParams.get("supplier_party_id");
+  const from = url?.searchParams.get("from");
+  const to = url?.searchParams.get("to");
+  const includeClosed = url ? url.searchParams.get("include_closed") === "true" : true;
+
+  const conditions = [];
+  const params = [];
+  if (supplierPartyId) { conditions.push("supplier_party_id = ?"); params.push(supplierPartyId); }
+  if (from) { conditions.push("date(created_at) >= date(?)"); params.push(from); }
+  if (to) { conditions.push("date(created_at) <= date(?)"); params.push(to); }
+  const whereClause = conditions.length ? "WHERE " + conditions.join(" AND ") : "";
+
+  const { results: orders } = await env.DB.prepare(`SELECT * FROM purchase_orders ${whereClause} ORDER BY created_at DESC`).bind(...params).all();
   const withItems = [];
   for (const po of orders) {
     const { results: items } = await env.DB.prepare(
@@ -21,7 +34,12 @@ export async function onRequestGet({ env }) {
       const billedRow = await env.DB.prepare("SELECT COALESCE(SUM(quantity),0) AS t FROM supplier_bill_items WHERE purchase_order_item_id = ?").bind(line.id).first();
       line.quantity_billed = billedRow.t;
     }
-    withItems.push({ ...po, items, status: deriveStatus(items) });
+    const trueStatus = deriveStatus(items);
+    // The raw stored status column never actually reflects real state (it's
+    // only ever computed at read time), so "open vs closed" must be judged
+    // here, after computing the true status, not via a SQL WHERE clause.
+    if (!includeClosed && trueStatus === "received" && po.bill_status === "billed") continue;
+    withItems.push({ ...po, items, status: trueStatus });
   }
   return Response.json(withItems);
 }

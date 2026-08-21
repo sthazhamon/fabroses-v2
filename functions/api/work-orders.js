@@ -32,6 +32,12 @@ export async function onRequestPost({ request, env, data }) {
   if (!intendedItem) return Response.json({ error: "That intended item doesn't exist" }, { status: 404 });
 
   const effectiveJobType = job_type === "rework" ? "rework" : "production";
+  if (effectiveJobType === "production") {
+    const bomRow = await env.DB.prepare("SELECT COUNT(*) AS c FROM item_bom WHERE finished_item_id = ?").bind(intended_item_id).first();
+    if (bomRow.c === 0) {
+      return Response.json({ error: "This item has no Bill of Materials defined yet. Add one in the Catalogue before creating a work order for it — otherwise there's nothing for the worker to verify or consume." }, { status: 400 });
+    }
+  }
   if (effectiveJobType === "rework" && !rework_lot_id) {
     return Response.json({ error: "Rework jobs need the specific lot being reworked" }, { status: 400 });
   }
@@ -83,7 +89,7 @@ export async function onRequestPost({ request, env, data }) {
       const { results: bom } = await env.DB.prepare("SELECT * FROM item_bom WHERE finished_item_id = ?").bind(intended_item_id).all();
       lines = bom.map((b) => ({ raw_material_item_id: b.raw_material_item_id, quantity: b.quantity_required * (target_quantity || 1) }));
     }
-    if (lines.length) bomResults = await fulfillBomLines(env, { workOrderId: id, workerSiteId: worker_site_id, lines, actorName: data.user?.name });
+    if (lines.length) bomResults = await fulfillBomLines(env, { workOrderId: id, workerSiteId: worker_site_id, lines, actorName: data?.user?.name });
   }
 
   return Response.json({ id, bom_results: bomResults });

@@ -22,6 +22,10 @@ async function run() {
   const worker = await (await sitesMod.onRequestPost({ request: req({ name: "Zakir", site_type: "worker" }), env })).json();
   const itemA = await (await itemsMod.onRequestPost({ request: req({ item_type: "finished_good", name: "Peacock Applique" }), env })).json();
   const itemB = await (await itemsMod.onRequestPost({ request: req({ item_type: "finished_good", name: "Custom Peacock" }), env })).json();
+  const rawMaterialMod = await import("../functions/api/items.js");
+  const rawMaterial = await (await rawMaterialMod.onRequestPost({ request: req({ item_type: "raw_material", name: "Thread" }), env })).json();
+  await env.DB.prepare("INSERT INTO item_bom (finished_item_id, raw_material_item_id, quantity_required) VALUES (?, ?, 1)").bind(itemA.id, rawMaterial.id).run();
+  await env.DB.prepare("INSERT INTO item_bom (finished_item_id, raw_material_item_id, quantity_required) VALUES (?, ?, 1)").bind(itemB.id, rawMaterial.id).run();
   const co = await (await coMod.onRequestPost({ request: req({ customer_name: "Susan", items: [{ item_id: itemA.id, quantity: 1 }, { item_id: itemB.id, quantity: 1 }] }), env })).json();
 
   section("=== Both lines appear in backlog before any WO exists ===");

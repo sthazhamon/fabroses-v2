@@ -28,6 +28,7 @@ async function run() {
   const workerA = await (await sitesMod.onRequestPost({ request: req({ name: "Zakir", site_type: "worker" }), env })).json();
   const rawItem = await (await itemsMod.onRequestPost({ request: req({ item_type: "raw_material", name: "Kota" }), env })).json();
   const finishedItem = await (await itemsMod.onRequestPost({ request: req({ item_type: "finished_good", name: "Saree" }), env })).json();
+  await env.DB.prepare("INSERT INTO item_bom (finished_item_id, raw_material_item_id, quantity_required) VALUES (?, ?, 1)").bind(finishedItem.id, rawItem.id).run();
   const lot = await (await lotsMod.onRequestPost({ request: req({ item_id: rawItem.id, site_id: store.id, quantity: 20, source_type: "direct_intake" }), env, data: {} })).json();
   const co = await (await coMod.onRequestPost({ request: req({ customer_name: "Anu", items: [{ item_id: finishedItem.id, quantity: 1 }] }), env })).json();
   const coDetail = await (await coDetailMod.onRequestGet({ params: { id: co.id }, env })).json();

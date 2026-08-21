@@ -6,10 +6,14 @@ const DIRECTION_DEBIT_SIDE = { receivable: "cash", payable: "party", worker: "pa
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   const partyId = url.searchParams.get("party_id");
-  let q = "SELECT * FROM payments";
+  const direction = url.searchParams.get("direction");
+  let q = "SELECT p.*, pt.name AS party_name FROM payments p LEFT JOIN parties pt ON pt.id = p.party_id";
+  const conditions = [];
   const params = [];
-  if (partyId) { q += " WHERE party_id = ?"; params.push(partyId); }
-  q += " ORDER BY payment_date DESC, id DESC";
+  if (partyId) { conditions.push("p.party_id = ?"); params.push(partyId); }
+  if (direction) { conditions.push("p.direction = ?"); params.push(direction); }
+  if (conditions.length) q += " WHERE " + conditions.join(" AND ");
+  q += " ORDER BY p.payment_date DESC, p.id DESC";
   const { results } = await env.DB.prepare(q).bind(...params).all();
   return Response.json(results);
 }

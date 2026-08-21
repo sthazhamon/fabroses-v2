@@ -54,6 +54,7 @@ async function run() {
   const issueMod = await import("../functions/api/work-orders/[id]/issue-material.js");
   const dedicatedItem = await (await itemsMod.onRequestPost({ request: req({ item_type: "raw_material", name: "Silk Thread" }), env })).json();
   const finishedItem = await (await itemsMod.onRequestPost({ request: req({ item_type: "finished_good", name: "Saree" }), env })).json();
+  await env.DB.prepare("INSERT INTO item_bom (finished_item_id, raw_material_item_id, quantity_required) VALUES (?, ?, 1)").bind(finishedItem.id, dedicatedItem.id).run();
   const workerLot = await (await lotsMod.onRequestPost({ request: req({ item_id: dedicatedItem.id, site_id: worker.id, quantity: 5, source_type: "opening_stock" }), env, data: {} })).json();
   const wo1 = await (await woMod.onRequestPost({ request: req({ description: "Job A", worker_site_id: worker.id, intended_item_id: finishedItem.id, target_quantity: 1, material_lines: [] }), env, data: {} })).json();
   const wo2 = await (await woMod.onRequestPost({ request: req({ description: "Job B", worker_site_id: worker.id, intended_item_id: finishedItem.id, target_quantity: 1, material_lines: [] }), env, data: {} })).json();

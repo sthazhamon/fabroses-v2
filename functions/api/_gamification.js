@@ -45,15 +45,40 @@ export async function getSpendableBalance(env, resellerPartyId) {
   return row.t;
 }
 
+export async function getRollingWindowDays(env) {
+  const row = await env.DB.prepare("SELECT value FROM system_settings WHERE key = 'reseller_level_window_days'").first();
+  return row ? parseInt(row.value, 10) : 90;
+}
+
+export async function setRollingWindowDays(env, days) {
+  await env.DB.prepare("INSERT INTO system_settings (key, value) VALUES ('reseller_level_window_days', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(days)).run();
+}
+
 export async function getCurrentLevel(env, resellerPartyId) {
+  const windowDays = await getRollingWindowDays(env);
   const row = await env.DB.prepare(
-    "SELECT COALESCE(SUM(points),0) AS t FROM reseller_points_ledger WHERE reseller_party_id = ? AND event_type = 'earned' AND strftime('%Y', created_at) = strftime('%Y', 'now')"
-  ).bind(resellerPartyId).first();
-  const pointsThisYear = row.t;
+    "SELECT COALESCE(SUM(points),0) AS t FROM reseller_points_ledger WHERE reseller_party_id = ? AND event_type = 'earned' AND date(created_at) >= date('now', '-' || ? || ' days')"
+  ).bind(resellerPartyId, windowDays).first();
+  const pointsThisWindow = row.t;
 
   const { results: levels } = await env.DB.prepare("SELECT * FROM reseller_level_config ORDER BY min_points_this_year DESC").all();
-  const currentLevel = levels.find(function(l){ return pointsThisYear >= l.min_points_this_year; }) || null;
-  return { points_this_year: pointsThisYear, level: currentLevel };
+  const computedLevel = levels.find(function(l){ return pointsThisWindow >= l.min_points_this_year; }) || null;
+
+  // A manual override (e.g. for outstanding payments) always wins over the
+  // computed level, but can only ever push it DOWN, never up - it exists
+  // to restrict a reseller, not to artificially inflate their standing.
+  const party = await env.DB.prepare("SELECT manual_level_override FROM parties WHERE id = ?").bind(resellerPartyId).first();
+  let effectiveLevel = computedLevel;
+  let overridden = false;
+  if (party && party.manual_level_override) {
+    const overrideLevel = levels.find(function(l){ return l.level_name === party.manual_level_override; });
+    if (overrideLevel && (!computedLevel || overrideLevel.min_points_this_year < computedLevel.min_points_this_year)) {
+      effectiveLevel = overrideLevel;
+      overridden = true;
+    }
+  }
+
+  return { points_this_year: pointsThisWindow, window_days: windowDays, level: effectiveLevel, computed_level: computedLevel, manually_overridden: overridden };
 }
 
 async function nextId(env, table, prefix, pad = 6) {

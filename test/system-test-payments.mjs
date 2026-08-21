@@ -75,6 +75,8 @@ async function run() {
   const woMod = await import("../functions/api/work-orders.js");
   const site = await (await sitesMod.onRequestPost({ request: req({ name: "Zakir", site_type: "worker" }), env })).json();
   const woItem = await (await itemsModForWO.onRequestPost({ request: req({ item_type: "finished_good", name: "Test Item" }), env })).json();
+  const woRawItem = await (await itemsModForWO.onRequestPost({ request: req({ item_type: "raw_material", name: "Test Raw" }), env })).json();
+  await env.DB.prepare("INSERT INTO item_bom (finished_item_id, raw_material_item_id, quantity_required) VALUES (?, ?, 1)").bind(woItem.id, woRawItem.id).run();
   const wo = await (await woMod.onRequestPost({ request: req({ description: "Job 1", worker_site_id: site.id, intended_item_id: woItem.id, target_quantity: 1 }), env })).json();
   await env.DB.prepare("UPDATE work_orders SET closed_at = datetime('now'), labor_cost = 500 WHERE id = ?").bind(wo.id).run();
 

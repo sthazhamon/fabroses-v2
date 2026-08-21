@@ -61,6 +61,7 @@ async function run() {
   section("=== Voiding a dispatch confirm-receive lot correctly reverses work order credit ===");
   const worker = await (await sitesMod.onRequestPost({ request: req({ name: "Zakir", site_type: "worker" }), env })).json();
   const finished = await (await itemsMod.onRequestPost({ request: req({ item_type: "finished_good", name: "Saree" }), env })).json();
+  await env.DB.prepare("INSERT INTO item_bom (finished_item_id, raw_material_item_id, quantity_required) VALUES (?, ?, 1)").bind(finished.id, itemA.id).run();
   const { createDispatch, confirmPick, shipDispatch, confirmReceive } = await import("../functions/api/_dispatch.js");
   const woMod = await import("../functions/api/work-orders.js");
   const wo = await (await woMod.onRequestPost({ request: req({ description: "Job", worker_site_id: worker.id, intended_item_id: finished.id, target_quantity: 1, material_lines: [] }), env, data: {} })).json();

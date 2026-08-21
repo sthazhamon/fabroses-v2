@@ -56,6 +56,7 @@ async function run() {
 
     const rawItem = await apiFetch("/items", postJSON({ item_type: "raw_material", name: "Kota", category_id: null, fabric_id: null, work_type_id: null, pattern_id: null, unit_of_measure: "metre", color: "", price: null, cost: null, description: "" }));
     const finishedItem = await apiFetch("/items", postJSON({ item_type: "finished_good", name: "Test Saree", category_id: null, fabric_id: null, work_type_id: null, pattern_id: null, unit_of_measure: "piece", color: "", price: 5000, cost: null, description: "" }));
+    await apiFetch("/items/" + finishedItem.id + "/bom", postJSON({ lines: [{ raw_material_item_id: rawItem.id, quantity_required: 5 }] }));
     const anu = await apiFetch("/parties", postJSON({ name: "Anu", type: "customer", opening_balance: 0 }));
     assert(anu.id, "createParty()'s field set accepted");
 

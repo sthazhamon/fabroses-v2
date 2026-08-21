@@ -13,6 +13,15 @@ async function accountTotal(env, code, from, to) {
   return account.account_type === "revenue" || account.account_type === "liability" ? row.c - row.d : row.d - row.c;
 }
 
+async function accountIds(env, codes) {
+  const ids = [];
+  for (const code of codes) {
+    const account = await env.DB.prepare("SELECT id FROM accounts WHERE code = ?").bind(code).first();
+    if (account) ids.push(account.id);
+  }
+  return ids;
+}
+
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   const from = url.searchParams.get("from");
@@ -23,13 +32,18 @@ export async function onRequestGet({ request, env }) {
   const rawMaterialConsumed = await accountTotal(env, "4000", from, to);
   const labor = await accountTotal(env, "4100", from, to);
 
+  const revenueAccountIds = await accountIds(env, ["3000", "3100"]);
+  const cogsAccountIds = await accountIds(env, ["4000", "4100"]);
+
   const { results: expenseAccounts } = await env.DB.prepare("SELECT id, code, name FROM accounts WHERE parent_account_id = (SELECT id FROM accounts WHERE code='5000')").all();
   let totalExpenses = 0;
   const expenseBreakdown = [];
+  const expenseAccountIds = [];
   for (const acc of expenseAccounts) {
     const t = await accountTotal(env, acc.code, from, to);
     totalExpenses += t;
-    if (t) expenseBreakdown.push({ name: acc.name, amount: t });
+    if (t) expenseBreakdown.push({ name: acc.name, amount: t, account_id: acc.id });
+    expenseAccountIds.push(acc.id);
   }
 
   const netRevenue = salesRevenue - salesRefunds;
@@ -39,8 +53,8 @@ export async function onRequestGet({ request, env }) {
 
   return Response.json({
     from: from || "all-time", to: to || "all-time",
-    sales_revenue: salesRevenue, sales_refunds: salesRefunds, net_revenue: netRevenue,
-    raw_material_consumed: rawMaterialConsumed, labor, cogs, gross_profit: grossProfit,
-    expenses: totalExpenses, expense_breakdown: expenseBreakdown, net_profit: netProfit,
+    sales_revenue: salesRevenue, sales_refunds: salesRefunds, net_revenue: netRevenue, net_revenue_account_ids: revenueAccountIds,
+    raw_material_consumed: rawMaterialConsumed, labor, cogs, cogs_account_ids: cogsAccountIds, gross_profit: grossProfit,
+    expenses: totalExpenses, expense_breakdown: expenseBreakdown, expense_account_ids: expenseAccountIds, net_profit: netProfit,
   });
 }

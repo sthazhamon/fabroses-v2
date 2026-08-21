@@ -1,6 +1,6 @@
 import { postJournalEntry, getOrCreatePartyAccount, accountFixedId, nextId } from "./_ledger.js";
 
-async function computeBalance(env, party) {
+export async function computeBalance(env, party) {
   if (!party.account_id) return { balance: party.opening_balance, billed: 0, settled: 0 };
   const row = await env.DB.prepare(
     "SELECT COALESCE(SUM(debit),0) AS d, COALESCE(SUM(credit),0) AS c FROM journal_lines WHERE account_id = ?"

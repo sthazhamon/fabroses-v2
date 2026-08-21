@@ -111,8 +111,15 @@
 <div id="app">
   <header>
     <h1>FabRoses</h1>
-    <div><span class="who" id="who-label"></span> <button class="logout" onclick="logout()">Log out</button></div>
+    <div><span class="who" id="who-label"></span> <button class="logout" onclick="toggleChangePinForm()">Change PIN</button> <button class="logout" onclick="logout()">Log out</button></div>
   </header>
+  <div id="change-pin-form" style="display:none;position:fixed;top:60px;right:10px;z-index:50;background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;box-shadow:0 4px 16px rgba(0,0,0,0.15);width:260px;">
+    <h4 style="margin-top:0;">Change my PIN</h4>
+    <label>Current PIN</label><input id="cp-current" type="password">
+    <label>New PIN (min 6 characters)</label><input id="cp-new" type="password">
+    <button class="secondary" onclick="submitChangeMyPin()">Change PIN</button>
+    <div id="cp-msg"></div>
+  </div>
   <nav id="nav-bar" class="top-nav"></nav>
   <nav id="bottom-nav" class="bottom-nav"></nav>
   <div id="more-overlay" onclick="closeMoreSheet()"></div>
@@ -172,6 +179,15 @@
       <div id="site-result"></div>
       <div class="card"><h4 style="margin-top:0;">All sites</h4><div id="site-list" class="muted">Loading...</div></div>
       <div class="card"><h4 style="margin-top:0;">Stock by site</h4><div id="stock-by-site" class="muted">Loading...</div></div>
+      <div class="card"><h4 style="margin-top:0;">Transfer stock between sites</h4>
+        <label>From site</label><select id="ts-from-site"></select>
+        <label>Lot to transfer</label><select id="ts-lot" onchange="updateTransferMaxQty()"><option value="">-- select a From site first --</option></select>
+        <label>To site</label><select id="ts-to-site"></select>
+        <label>Quantity</label><input id="ts-qty" type="number" step="0.1">
+        <button class="secondary" onclick="submitStockTransfer()">Create transfer</button>
+        <p class="muted">This creates a dispatch — go to the Dispatch tab to pick and ship it, same as any other transfer.</p>
+        <div id="ts-msg"></div>
+      </div>
     </section>
 
     <section class="panel" id="panel-movements">
@@ -194,7 +210,11 @@
         <button type="button" class="secondary btn-sm" onclick="addPOLine()">+ Add line</button></div>
       <button class="primary" onclick="createPO()">Place order</button>
       <div id="po-result"></div>
-      <div class="card"><h4 style="margin-top:0;">Orders</h4><div id="po-list" class="muted">Loading...</div></div>
+      <div class="card"><h4 style="margin-top:0;">Orders</h4>
+        <div class="row"><input id="po-filter-vendor" placeholder="Search by vendor"><input id="po-filter-from" type="date"><input id="po-filter-to" type="date"></div>
+        <label><input type="checkbox" id="po-filter-show-all" onchange="loadPOs()" style="width:auto;"> Show closed/fully-received orders too</label>
+        <button class="secondary btn-sm" onclick="loadPOs()">Filter</button>
+        <div id="po-list" class="muted">Loading...</div></div>
       <div id="po-detail"></div>
     </section>
 
@@ -215,7 +235,9 @@
       <div id="wo-bom-preview"></div>
       <button class="primary" onclick="createWO()">Create work order</button>
       <div id="wo-result"></div>
-      <div class="card"><h4 style="margin-top:0;">All work orders</h4><div id="order-list" class="muted">Loading...</div></div>
+      <div class="card"><h4 style="margin-top:0;">All work orders</h4>
+        <div class="row"><input id="wo-filter-worker" placeholder="Search by worker" oninput="loadWOs()"><input id="wo-filter-from" type="date" onchange="loadWOs()"><input id="wo-filter-to" type="date" onchange="loadWOs()"></div>
+        <div id="order-list" class="muted">Loading...</div></div>
       <div id="wo-detail"></div>
     </section>
 
@@ -229,6 +251,44 @@
     <section class="panel" id="panel-resellerportal">
       <h3 id="rp-greeting">My Orders & Rewards</h3>
       <div id="rp-content" class="muted">Loading...</div>
+    </section>
+
+    <section class="panel" id="panel-resellerprogram">
+      <h3>Reseller Program</h3>
+
+      <div class="card"><h4 style="margin-top:0;">Program-wide settings</h4>
+        <div class="row">
+          <div><label>Points earned per Rs spent</label><input id="rpr-earn-rate" type="number" step="0.01"></div>
+          <div><label>Level window (days)</label><input id="rpr-window-days" type="number" step="1"></div>
+          <div><label>Cash redemption rate (Rs per point)</label><input id="rpr-redeem-rate" type="number" step="0.01"></div>
+        </div>
+        <button class="secondary" onclick="saveResellerProgramSettings()">Save settings</button><div id="rpr-settings-msg"></div>
+      </div>
+
+      <div class="card"><h4 style="margin-top:0;">Levels</h4>
+        <div class="row"><input id="rpr-level-name" placeholder="Level name"><input id="rpr-level-min" type="number" step="1" placeholder="Min points"><input id="rpr-level-discount" type="number" step="0.1" placeholder="Discount %"></div>
+        <button class="secondary btn-sm" onclick="saveResellerLevel()">Add / update level</button><div id="rpr-level-msg"></div>
+        <div id="rpr-levels-list" class="muted">Loading...</div>
+      </div>
+
+      <div class="card"><h4 style="margin-top:0;">Rewards catalog</h4>
+        <div class="row"><input id="rpr-reward-name" placeholder="Reward name"><input id="rpr-reward-points" type="number" step="1" placeholder="Points cost"></div>
+        <button class="secondary btn-sm" onclick="addResellerReward()">Add reward</button><div id="rpr-reward-msg"></div>
+        <div id="rpr-rewards-list" class="muted">Loading...</div>
+      </div>
+
+      <div class="card"><h4 style="margin-top:0;">Pending redemption requests</h4><div id="rpr-redemptions-list" class="muted">Loading...</div></div>
+
+      <div class="card"><h4 style="margin-top:0;">Milestones</h4>
+        <label>Name</label><input id="rpr-mlstn-name">
+        <div class="row"><div><label>Target value (Rs)</label><input id="rpr-mlstn-target" type="number" step="1"></div><div><label>Start</label><input id="rpr-mlstn-start" type="date"></div><div><label>End</label><input id="rpr-mlstn-end" type="date"></div></div>
+        <label>Perk</label><select id="rpr-mlstn-perk-type" onchange="toggleMilestonePerkFields()"><option value="bonus_points">Bonus points</option><option value="reward_item">Specific reward item</option></select>
+        <div id="rpr-mlstn-points-wrap"><label>Bonus points</label><input id="rpr-mlstn-points" type="number" step="1"></div>
+        <div id="rpr-mlstn-item-wrap" style="display:none;"><label>Reward item</label><select id="rpr-mlstn-item-select"></select></div>
+        <label>Target resellers</label><select id="rpr-mlstn-resellers" multiple style="height:90px;"></select>
+        <button class="secondary btn-sm" onclick="createResellerMilestone()">Create milestone</button><div id="rpr-mlstn-msg"></div>
+        <div id="rpr-milestones-list" class="muted">Loading...</div>
+      </div>
     </section>
 
     <section class="panel" id="panel-dispatch">
@@ -266,7 +326,9 @@
         <button type="button" class="secondary btn-sm" onclick="addCOLine()">+ Add line</button></div>
       <button class="primary" onclick="createCO()">Log order</button>
       <div id="co-result"></div>
-      <div class="card"><h4 style="margin-top:0;">All customer orders</h4><div id="co-list" class="muted">Loading...</div></div>
+      <div class="card"><h4 style="margin-top:0;">All customer orders</h4>
+        <div class="row"><input id="co-filter-party" placeholder="Search by customer/reseller" oninput="loadCOs()"><input id="co-filter-from" type="date" onchange="loadCOs()"><input id="co-filter-to" type="date" onchange="loadCOs()"></div>
+        <div id="co-list" class="muted">Loading...</div></div>
       <div id="co-detail"></div>
     </section>
 
@@ -293,7 +355,9 @@
         <label>Quantity returned</label><input id="ret-qty" type="number" step="0.01">
         <label>Notes</label><input id="ret-notes">
         <button class="secondary" onclick="createSalesReturn()">Record return</button><div id="sales-return-msg"></div></div>
-      <div class="card"><h4 style="margin-top:0;">Recent sales</h4><div id="sales-list" class="muted">Loading...</div></div>
+      <div class="card"><h4 style="margin-top:0;">Recent sales</h4>
+        <div class="row"><input id="sales-filter-party" placeholder="Search by customer/reseller" oninput="loadSales()"><input id="sales-filter-from" type="date" onchange="loadSales()"><input id="sales-filter-to" type="date" onchange="loadSales()"></div>
+        <div id="sales-list" class="muted">Loading...</div></div>
     </section>
 
     <section class="panel" id="panel-purchases">
@@ -310,7 +374,10 @@
       <label>Description</label><input id="sb-desc">
       <button class="primary" onclick="createSupplierBill()">Record bill</button>
       <div id="sb-result"></div>
-      <div class="card"><h4 style="margin-top:0;">Recent bills</h4><div id="sb-list" class="muted">Loading...</div></div>
+      <div class="card"><h4 style="margin-top:0;">Recent bills</h4>
+        <div class="row"><input id="sb-filter-party" placeholder="Search by supplier" oninput="loadSupplierBills()"><input id="sb-filter-from" type="date" onchange="loadSupplierBills()"><input id="sb-filter-to" type="date" onchange="loadSupplierBills()"></div>
+        <div id="sb-list" class="muted">Loading...</div></div>
+      <div id="sb-detail"></div>
     </section>
 
     <section class="panel" id="panel-expenses">
@@ -332,6 +399,8 @@
       <label>Method / reference</label><input id="recv-ref">
       <button class="primary" onclick="submitPayment('receivable')">Record payment</button>
       <div id="recv-result"></div>
+      <h4>Recent payments received</h4>
+      <div id="recv-history" class="muted">Loading...</div>
     </section>
 
     <section class="panel" id="panel-payable">
@@ -393,6 +462,7 @@
       <button class="primary" onclick="createParty()">Add party</button>
       <div id="party-result"></div>
       <div class="card"><h4 style="margin-top:0;">All parties</h4><div id="parties-list" class="muted">Loading...</div></div>
+      <div id="party-detail"></div>
     </section>
 
     <section class="panel" id="panel-users">
@@ -406,6 +476,7 @@
       <button class="primary" onclick="createUser()">Create login</button>
       <div id="user-result"></div>
       <div class="card"><h4 style="margin-top:0;">Existing logins</h4><div id="users-list" class="muted">Loading...</div></div>
+      <div id="user-detail"></div>
     </section>
 
   </main>
@@ -445,6 +516,7 @@ const TABS = [
   { id: "workorders", label: "Work Orders", roles: ["admin","accountant"] },
   { id: "mywork", label: "My Work", roles: ["worker"] },
   { id: "resellerportal", label: "My Orders & Rewards", roles: ["reseller"] },
+  { id: "resellerprogram", label: "Reseller Program", roles: ["admin","accountant"] },
   { id: "dispatch", label: "Dispatch", roles: ["admin","accountant","dispatch"] },
   { id: "sales", label: "Sales", roles: ["admin","accountant"] },
   { id: "receivable", label: "Receivable", roles: ["admin","accountant"] },
@@ -536,19 +608,20 @@ function loadTabData(tabId){
   try{
     if(tabId==="dashboard") loadDashboard();
     if(tabId==="catalogue"){ populateMasterDropdowns(); loadItems(); }
-    if(tabId==="sites"){ loadSites(); loadStockBySite(); }
+    if(tabId==="sites"){ loadSites(); loadStockBySite(); loadTransferSiteDropdowns(); }
     if(tabId==="movements"){ loadMovementFilters(); loadMovements(); }
     if(tabId==="po"){ populatePartyDropdown("po-supplier-select","supplier"); loadPOs(); }
     if(tabId==="workorders"){ loadBacklog(); populateSiteDropdown("wo-worker","worker"); populateItemDropdown("wo-intended","finished_good"); loadWOs(); }
     if(tabId==="mywork") loadMyWork();
     if(tabId==="resellerportal") loadResellerPortal();
+    if(tabId==="resellerprogram") loadResellerProgram();
     if(tabId==="dispatch"){ loadDispatchQueue(); loadDispatchHistory(); }
     if(tabId==="receive"){ loadReceiveQueue(); loadPOReceiveQueue(); loadReceiveHistory(); }
     if(tabId==="co"){ populateCustomerOrResellerDropdown("co-customer-select"); loadCOs(); }
     if(tabId==="sales"){ populateCustomerOrResellerDropdown("s-customer-select"); loadSalesForRefund(); loadSalesForReturn(); loadSales(); }
     if(tabId==="purchases"){ populatePartyDropdown("sb-supplier-select","supplier"); loadUnbilledPOs(); loadSupplierBills(); }
     if(tabId==="expenses"){ populateExpenseCategoryDropdown(); loadExpenses(); }
-    if(tabId==="receivable") populatePartyDropdown("recv-party","customer",false,true);
+    if(tabId==="receivable"){ populatePartyDropdown("recv-party",["customer","reseller"],false,true); loadReceivableHistory(); }
     if(tabId==="payable") populatePartyDropdown("pay-party","supplier");
     if(tabId==="workerpay") populatePartyDropdown("wp-party","worker");
     if(tabId==="journal") populateAccountDropdowns();
@@ -573,11 +646,12 @@ async function populateSiteDropdown(selectId, typeFilter){
 let allPartiesCache = [];
 async function populatePartyDropdown(selectId, typeFilter, includeNoneCash, keepValue){
   allPartiesCache = await apiFetch("/parties");
-  const filtered = typeFilter ? allPartiesCache.filter(function(p){return p.type===typeFilter;}) : allPartiesCache;
+  const typeList = Array.isArray(typeFilter) ? typeFilter : (typeFilter ? [typeFilter] : null);
+  const filtered = typeList ? allPartiesCache.filter(function(p){return typeList.includes(p.type);}) : allPartiesCache;
   const sel = document.getElementById(selectId);
   const current = keepValue ? sel.value : null;
   const blankLabel = includeNoneCash ? "-- none / cash --" : "-- select --";
-  sel.innerHTML = '<option value="">'+blankLabel+'</option>' + filtered.map(function(p){return '<option value="'+p.id+'" data-phone="'+(p.phone||"")+'">'+p.name+' (Rs '+p.balance+')</option>';}).join("");
+  sel.innerHTML = '<option value="">'+blankLabel+'</option>' + filtered.map(function(p){return '<option value="'+p.id+'" data-phone="'+(p.phone||"")+'">'+p.name+' ('+p.type+', Rs '+p.balance+')</option>';}).join("");
   if(current) sel.value = current;
 }
 async function addPartyInline(type, selectId){
@@ -628,6 +702,20 @@ async function populateAccountDropdown(selectId){
 async function populateAccountDropdowns(){ await populateAccountDropdown("je-debit"); await populateAccountDropdown("je-credit"); }
 
 // ---------------- Dashboard ----------------
+function filterListByPartyAndDate(list, partyQuery, from, to, partyFieldFn, dateFieldFn){
+  const q = (partyQuery||"").trim().toLowerCase();
+  return list.filter(function(item){
+    if(q && !(partyFieldFn(item)||"").toLowerCase().includes(q)) return false;
+    const d = (dateFieldFn(item)||"").slice(0,10);
+    if(from && d < from) return false;
+    if(to && d > to) return false;
+    return true;
+  });
+}
+function scrollToDetail(elementId){
+  const el = document.getElementById(elementId);
+  if(el) setTimeout(function(){ el.scrollIntoView({behavior:"smooth", block:"start"}); }, 30);
+}
 async function loadDashboard(){
   try{
     const pnl = await apiFetch("/reports/pnl");
@@ -799,6 +887,7 @@ async function viewItem(id){
       '<label>Add photo</label><input type="file" accept="image/*" id="item-detail-photo">'+
       '<button class="secondary" onclick="uploadItemPhoto(\''+id+'\')">Upload</button></div>';
     if(it.item_type==="finished_good") await loadBomEditor(id);
+    scrollToDetail("item-detail");
   }catch(e){showError(e.message);}
 }
 async function loadBomEditor(itemId){
@@ -911,8 +1000,12 @@ async function loadStockBySite(){
       const rows = Object.keys(byItem).map(function(itemId){
         const agg = byItem[itemId];
         const rowId = "agg-"+entry.site.id+"-"+itemId;
-        return '<tr><td>'+agg.item_name+' ('+(agg.item_code||'-')+')</td><td>'+agg.total+'</td><td><button class="secondary btn-sm" onclick="toggleLotExpand(\''+rowId+'\')">Show lots</button></td></tr>'+
-          '<tr id="'+rowId+'" style="display:none;"><td colspan="3">'+agg.lots.map(function(l){return '<div class="row" style="margin:4px 0;"><span style="flex:2;">'+l.id+'</span>'+
+        const thumb = agg.lots[0].item_photo_key ? '<img src="/api/photo/'+agg.lots[0].item_photo_key+'" style="width:40px;height:40px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:6px;">' : '';
+        return '<tr><td>'+thumb+agg.item_name+' ('+(agg.item_code||'-')+')</td><td>'+agg.total+'</td><td>'+
+          '<button class="secondary btn-sm" onclick="toggleLotExpand(\''+rowId+'\')">Show lots</button> '+
+          '<button class="secondary btn-sm" onclick=\'printQR("'+(agg.item_code||itemId)+'","'+agg.item_name.replace(/'/g,"")+'")\'>QR</button></td></tr>'+
+          '<tr id="'+rowId+'" style="display:none;"><td colspan="3">'+agg.lots.map(function(l){return '<div class="row" style="margin:4px 0;align-items:center;"><span style="flex:2;">'+l.id+'</span>'+
+            '<span class="muted" style="flex:2;font-size:0.8rem;">Received: '+(l.created_at||"-").slice(0,10)+'</span>'+
             '<input id="lotqty-'+l.id+'" type="number" step="0.1" value="'+l.quantity_balance+'" style="flex:1;">'+
             '<button class="secondary btn-sm" onclick="saveLotQty(\''+l.id+'\')">Save</button>'+
             '<button class="secondary btn-sm" onclick="viewLotHistory(\''+l.id+'\')">History</button></div>';}).join("")+'</td></tr>';
@@ -921,6 +1014,43 @@ async function loadStockBySite(){
     }).join("");
     document.getElementById("stock-by-site").innerHTML=html||"No sites yet.";
   }catch(e){document.getElementById("stock-by-site").textContent=e.message;}
+}
+async function loadTransferSiteDropdowns(){
+  try{
+    const sites = await apiFetch("/sites");
+    const opts = sites.map(function(s){return '<option value="'+s.id+'">'+s.name+' ('+s.site_type+')</option>';}).join("");
+    document.getElementById("ts-from-site").innerHTML = '<option value="">-- select --</option>'+opts;
+    document.getElementById("ts-to-site").innerHTML = '<option value="">-- select --</option>'+opts;
+    document.getElementById("ts-from-site").onchange = updateTransferLotOptions;
+  }catch(e){}
+}
+function updateTransferLotOptions(){
+  const siteId = document.getElementById("ts-from-site").value;
+  const lotSelect = document.getElementById("ts-lot");
+  if(!siteId || !__stockBySiteRaw){ lotSelect.innerHTML = '<option value="">-- select a From site first --</option>'; return; }
+  const entry = __stockBySiteRaw.sites.find(function(e){return e.site.id===siteId;});
+  if(!entry || !entry.lots.length){ lotSelect.innerHTML = '<option value="">Nothing in stock at this site</option>'; return; }
+  lotSelect.innerHTML = entry.lots.map(function(l){return '<option value="'+l.id+'" data-max="'+l.quantity_balance+'">'+l.id+' — '+l.item_name+' ('+l.quantity_balance+' available)</option>';}).join("");
+  updateTransferMaxQty();
+}
+function updateTransferMaxQty(){
+  const lotSelect = document.getElementById("ts-lot");
+  const opt = lotSelect.options[lotSelect.selectedIndex];
+  if(!opt) return;
+  const max = parseFloat(opt.dataset.max)||0;
+  document.getElementById("ts-qty").value = max;
+  document.getElementById("ts-qty").max = max;
+}
+async function submitStockTransfer(){
+  try{
+    const from_site_id = document.getElementById("ts-from-site").value;
+    const to_site_id = document.getElementById("ts-to-site").value;
+    const lot_id = document.getElementById("ts-lot").value;
+    const quantity = parseFloat(document.getElementById("ts-qty").value);
+    if(!from_site_id || !to_site_id || !lot_id || !quantity){ document.getElementById("ts-msg").innerHTML='<p style="color:var(--warn);">Fill in every field</p>'; return; }
+    const res = await apiFetch("/transfer-stock",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({from_site_id:from_site_id,to_site_id:to_site_id,lot_id:lot_id,quantity:quantity})});
+    document.getElementById("ts-msg").innerHTML='<p style="color:var(--ok);">Created '+res.dispatch_id+' — go to Dispatch to pick and ship it.</p>';
+  }catch(e){ document.getElementById("ts-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
 async function loadMovementFilters(){
   try{
@@ -1015,9 +1145,21 @@ async function createPO(){
 async function loadPOs(){
   try{
     const list=await apiFetch("/purchase-orders");
-    document.getElementById("po-list").innerHTML = renderCardList(list, {
-      icon: function(){return "🧾";}, title: function(po){return po.supplier_name;}, sub: function(po){return po.id+' · '+po.items.length+' line(s) · '+po.status;},
-      onClick: function(po){return "viewPO('"+po.id+"')";}, empty: "No orders yet.",
+    const vendorFilter = document.getElementById("po-filter-vendor").value.trim().toLowerCase();
+    const fromFilter = document.getElementById("po-filter-from").value;
+    const toFilter = document.getElementById("po-filter-to").value;
+    const showAll = document.getElementById("po-filter-show-all").checked;
+    const filtered = list.filter(function(po){
+      if(vendorFilter && !po.supplier_name.toLowerCase().includes(vendorFilter)) return false;
+      const poDate = (po.created_at||"").slice(0,10);
+      if(fromFilter && poDate < fromFilter) return false;
+      if(toFilter && poDate > toFilter) return false;
+      if(!showAll && (po.status==="received" || po.status==="cancelled")) return false;
+      return true;
+    });
+    document.getElementById("po-list").innerHTML = renderCardList(filtered, {
+      icon: function(){return "🧾";}, title: function(po){return po.supplier_name;}, sub: function(po){return po.id+' · '+po.items.length+' line(s) · '+po.status+' · '+(po.created_at||"").slice(0,10);},
+      onClick: function(po){return "viewPO('"+po.id+"')";}, empty: showAll?"No orders match this filter.":"Nothing open right now — try \"Show closed/fully-received orders too\".",
     });
   }catch(e){document.getElementById("po-list").textContent=e.message;}
 }
@@ -1038,6 +1180,7 @@ async function viewPO(id){
     }).join("");
     document.getElementById("po-detail").innerHTML = '<div class="card"><div class="code-big">'+po.id+'</div><p>'+po.supplier_name+' | Status: '+po.status+' | Bill: '+po.bill_status+'</p>'+
       '<table><tr><th>Item</th><th>Progress</th><th>Rate</th><th>Amount</th><th></th></tr>'+rows+'</table></div>';
+    scrollToDetail("po-detail");
   }catch(e){showError(e.message);}
 }
 async function receivePOLine(lineId, poId){
@@ -1166,10 +1309,13 @@ async function createWO(){
 async function loadWOs(){
   try{
     const list=await apiFetch("/work-orders");
-    document.getElementById("order-list").innerHTML = renderCardList(list, {
+    const workerQ = document.getElementById("wo-filter-worker").value;
+    const from = document.getElementById("wo-filter-from").value, to = document.getElementById("wo-filter-to").value;
+    const filtered = filterListByPartyAndDate(list, workerQ, from, to, function(w){return w.worker_site_name;}, function(w){return w.order_date||w.created_at;});
+    document.getElementById("order-list").innerHTML = renderCardList(filtered, {
       icon: function(w){return w.job_type==="rework"?"🔧":"🧵";}, title: function(w){return w.description;},
-      sub: function(w){return w.id+' · '+(w.cancelled_at?"Cancelled":w.stage)+' · '+w.received_quantity_total+'/'+w.target_quantity;},
-      onClick: function(w){return "viewWO('"+w.id+"')";}, empty: "No work orders yet.",
+      sub: function(w){return w.id+' · '+(w.worker_site_name||"-")+' · '+(w.cancelled_at?"Cancelled":w.stage)+' · '+w.received_quantity_total+'/'+w.target_quantity+' · '+(w.order_date||w.created_at||"-").slice(0,10);},
+      onClick: function(w){return "viewWO('"+w.id+"')";}, empty: "No work orders match this filter.",
     });
   }catch(e){document.getElementById("order-list").textContent=e.message;}
 }
@@ -1188,7 +1334,7 @@ async function viewWO(id){
       : (canCancel?'<h4>Send for rework</h4><p class="muted">Lot: '+(w.rework_lot_id||"-")+'</p><button class="secondary" onclick="issueRework(\''+w.id+'\')">Create dispatch</button><div id="wo-rework-issue-msg"></div>':'')
     ) : "";
     document.getElementById("wo-detail").innerHTML='<div class="card"><div class="code-big">'+w.id+'</div>'+
-      '<p>'+w.description+' <span class="muted">('+w.job_type+')</span></p><p>Item: <b>'+(w.intended_item_name||"")+'</b>'+(w.intended_item_code?' ('+w.intended_item_code+')':'')+'</p><p>Worker: <b>'+(w.worker_site_name||"")+'</b> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+'</p>'+
+      '<p>'+w.description+' <span class="muted">('+w.job_type+')</span></p><p>Item: <b>'+(w.intended_item_name||"")+'</b>'+(w.intended_item_code?' ('+w.intended_item_code+')':'')+'</p><p>Worker: <b>'+(w.worker_site_name||"")+'</b> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+' | Placed: '+(w.order_date||w.created_at||"-").slice(0,10)+'</p>'+
       '<p>Stage: <span class="stage-badge">'+(w.cancelled_at?"Cancelled":w.stage)+'</span>'+(canStart?' <button class="secondary btn-sm" onclick="advanceStage(\''+w.id+'\',\'Work Started\')">Mark Work Started</button>':'')+'</p>'+
       '<p class="muted">Material Received and Work Shipped are set automatically by the dispatch engine, not manually here.</p>'+
       (canCancel?'<button class="secondary btn-sm" onclick="cancelWO(\''+w.id+'\')" style="border-color:var(--warn);color:var(--warn);">Cancel this job</button><p class="muted">Wrong worker assigned? Cancel this and create a fresh work order for the right person — reassigning isn\'t supported, since it would leave material tracking pointing at the wrong site.</p><div id="wo-cancel-msg"></div>':'')+
@@ -1209,6 +1355,7 @@ async function viewWO(id){
         if(!bomLines.length) sel.innerHTML = '<option value="">No BOM set for this item — add one in Catalogue, or issue material won\'t know what to suggest</option>';
       }
     }
+    scrollToDetail("wo-detail");
   }catch(e){showError(e.message);}
 }
 async function loadIssueLotOptions(woId){
@@ -1294,11 +1441,20 @@ async function loadMyWork(){
     const stockHtml = wp.own_stock.length
       ? '<div class="card-list">'+stockRows+'</div><button class="secondary" onclick="shipSelectedStock()" style="margin-top:8px;">Ship selected</button><div id="mystock-ship-msg"></div>'
       : '<p class="muted">None.</p>';
+
+    function sectionCard(emoji, title, count, needsAction, bodyHtml){
+      const badgeColor = needsAction && count>0 ? "#c0392b" : "#8a8f98";
+      return '<div class="card" style="margin-top:14px;border-left:4px solid '+(needsAction && count>0?"var(--rose)":"var(--line)")+';">'+
+        '<h4 style="margin:0 0 10px;display:flex;align-items:center;gap:8px;">'+emoji+' '+title+
+        '<span style="background:'+badgeColor+';color:#fff;font-size:0.7rem;padding:2px 9px;border-radius:12px;font-weight:700;">'+count+'</span></h4>'+
+        bodyHtml+'</div>';
+    }
+
     document.getElementById("mywork-content").innerHTML =
-      '<h4>Material waiting for me to confirm ('+wp.incoming_to_confirm.length+')</h4>'+incomingHtml+
-      '<h4>My pending jobs ('+wp.pending_orders.length+')</h4>'+orderHtml+
-      '<h4>My outgoing to pick/ship ('+wp.outgoing_to_ship.length+')</h4>'+outgoingHtml+
-      '<h4>My own stock — select any items to ship back together</h4>'+stockHtml;
+      sectionCard("📦","Material waiting for me to confirm", wp.incoming_to_confirm.length, true, incomingHtml)+
+      sectionCard("🧵","My pending jobs", wp.pending_orders.length, true, orderHtml)+
+      sectionCard("🚚","My outgoing to pick/ship", wp.outgoing_to_ship.length, true, outgoingHtml)+
+      sectionCard("📋","My own stock — select any items to ship back together", wp.own_stock.length, false, stockHtml);
     document.querySelectorAll(".mystock-check").forEach(function(cb){
       cb.onchange = function(){
         const qtyField = document.querySelector('.mystock-qty[data-lot-id="'+cb.dataset.lotId+'"]');
@@ -1312,38 +1468,55 @@ async function loadResellerPortal(){
     const p = await apiFetch("/reseller-portal");
     document.getElementById("rp-greeting").textContent = "Hi, "+(p.reseller_name||"there")+"!";
 
-    const levelName = p.current_level ? p.current_level.level_name : "—";
-    const levelColor = levelName==="platinum"?"#5b6b7a":levelName==="gold"?"#c9a227":"#9aa5b1";
+    const levelName = p.current_level ? p.current_level.level_name : "member";
+    const levelKey = levelName.toLowerCase();
+    const medal = levelKey.includes("platinum")?"💎":levelKey.includes("gold")?"🥇":levelKey.includes("silver")?"🥈":"🎗️";
+    const ribbonColor = levelKey.includes("platinum")?"#5b6b7a":levelKey.includes("gold")?"#b8860b":levelKey.includes("silver")?"#8a8f98":"#c0392b";
+    const headerEl = document.querySelector("header");
+    if(headerEl) headerEl.style.background = ribbonColor;
+    const accent = levelName==="platinum"?"#b9c2cc":levelName==="gold"?"#e8c34a":"#c9ced4";
     const discount = p.current_level ? p.current_level.discount_percent : 0;
 
     const milestoneCards = (p.milestone_progress||[]).map(function(m){
       const pct = Math.min(100, Math.round((m.current_value/m.target_value)*100));
-      return '<div class="card" style="margin:6px 0;"><p style="margin:0 0 4px;font-weight:600;">'+m.name+(m.achieved?' 🎉 Achieved!':'')+'</p>'+
-        '<div style="background:#eee;border-radius:8px;height:14px;overflow:hidden;"><div style="background:linear-gradient(90deg,#e91e63,#ff9800);height:100%;width:'+pct+'%;"></div></div>'+
-        '<p class="muted" style="margin:4px 0 0;font-size:0.75rem;">Rs '+m.current_value+' of Rs '+m.target_value+' · ends '+m.end_date+'</p></div>';
+      return '<div class="rp-card"><p style="margin:0 0 6px;font-weight:600;color:#f0e6c8;">'+m.name+(m.achieved?' <span style="color:#e8c34a;">— Achieved 🏆</span>':'')+'</p>'+
+        '<div style="background:#2a2a32;border-radius:8px;height:12px;overflow:hidden;"><div style="background:linear-gradient(90deg,#8a6d1f,#e8c34a);height:100%;width:'+pct+'%;"></div></div>'+
+        '<p style="margin:6px 0 0;font-size:0.75rem;color:#9a978c;">Rs '+m.current_value+' of Rs '+m.target_value+' · ends '+m.end_date+'</p></div>';
     }).join("");
 
-    const orderRows = (p.orders||[]).map(function(o){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+o.id+'</p><p class="lc-sub">'+o.status+(o.tracking_id?' · Tracking: '+o.tracking_id:'')+'</p></div></div>';}).join("");
+    const orderRows = (p.orders||[]).map(function(o){return '<div class="rp-list-row"><p style="margin:0;font-weight:600;color:#f0e6c8;">'+o.id+'</p><p style="margin:2px 0 0;font-size:0.8rem;color:#9a978c;">'+o.status+(o.tracking_id?' · Tracking: '+o.tracking_id:'')+'</p></div>';}).join("");
 
     const rewardCards = (p.reward_catalog||[]).map(function(r){
       const affordable = p.spendable_balance >= r.points_cost;
-      return '<div class="card" style="margin:6px 0;'+(affordable?'':'opacity:0.5;')+'"><p style="margin:0;font-weight:600;">'+r.name+'</p><p class="muted" style="margin:2px 0 8px;">'+r.points_cost+' points</p>'+
-        (affordable?'<button class="secondary btn-sm" onclick="requestReward(\''+r.id+'\')">Redeem</button>':'<p class="muted" style="font-size:0.75rem;">Not enough points yet</p>')+'</div>';
+      return '<div class="rp-card" style="'+(affordable?'':'opacity:0.45;')+'"><p style="margin:0;font-weight:600;color:#f0e6c8;">'+r.name+'</p><p style="margin:2px 0 10px;font-size:0.8rem;color:#e8c34a;">'+r.points_cost+' points</p>'+
+        (affordable?'<button class="rp-btn" onclick="requestReward(\''+r.id+'\')">Redeem</button>':'<p style="font-size:0.75rem;color:#75726a;margin:0;">Not enough points yet</p>')+'</div>';
     }).join("");
 
-    const redemptionRows = (p.my_redemptions||[]).map(function(r){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+r.reward_name+'</p><p class="lc-sub">'+r.status+(r.tracking_id?' · '+r.courier+' '+r.tracking_id:'')+'</p></div></div>';}).join("");
+    const redemptionRows = (p.my_redemptions||[]).map(function(r){return '<div class="rp-list-row"><p style="margin:0;font-weight:600;color:#f0e6c8;">'+r.reward_name+'</p><p style="margin:2px 0 0;font-size:0.8rem;color:#9a978c;">'+r.status+(r.tracking_id?' · '+r.courier+' '+r.tracking_id:'')+'</p></div>';}).join("");
+    const ledgerRows = (p.ledger_entries||[]).map(function(e){return '<tr><td style="color:#c9ced4;">'+(e.entry_date||"-").slice(0,10)+'</td><td style="color:#c9ced4;">'+(e.description||"")+'</td><td style="color:#7cc47c;">'+(e.debit||"")+'</td><td style="color:#e08a8a;">'+(e.credit||"")+'</td></tr>';}).join("");
 
     document.getElementById("rp-content").innerHTML =
-      '<div class="card" style="background:linear-gradient(135deg,#fff3e0,#fce4ec);text-align:center;padding:20px;">'+
-        '<p style="font-size:2.2rem;margin:0;font-weight:700;color:#e91e63;">🪙 '+p.spendable_balance+'</p>'+
-        '<p class="muted" style="margin:2px 0 10px;">points available to spend</p>'+
-        '<span style="display:inline-block;background:'+levelColor+';color:#fff;padding:4px 16px;border-radius:20px;font-weight:700;text-transform:uppercase;letter-spacing:1px;font-size:0.8rem;">'+levelName+'</span>'+
-        '<p class="muted" style="margin:8px 0 0;font-size:0.8rem;">'+p.points_this_year+' points this year · '+discount+'% discount on your orders</p>'+
+      '<style>#panel-resellerportal{background:#15151b;margin:-14px;padding:14px;border-radius:8px;}'+
+      '#panel-resellerportal h3,#panel-resellerportal h4{color:#f0e6c8;}'+
+      '.rp-card{background:#1e1e26;border:1px solid #33333d;border-radius:12px;padding:14px;margin:8px 0;}'+
+      '.rp-list-row{background:#1e1e26;border:1px solid #33333d;border-radius:10px;padding:10px 14px;margin:6px 0;}'+
+      '.rp-btn{background:linear-gradient(135deg,#8a6d1f,#e8c34a);color:#1a1a1a;border:none;border-radius:8px;padding:6px 16px;font-weight:700;cursor:pointer;}</style>'+
+      '<div class="rp-card" style="text-align:center;padding:26px;background:radial-gradient(circle at 50% 0%,#2a2416,#15151b 70%);border-color:'+accent+';">'+
+        '<p style="font-size:2.4rem;margin:0;">'+medal+'</p>'+
+        '<p style="font-size:0.75rem;letter-spacing:2px;text-transform:uppercase;color:'+accent+';margin:4px 0;font-weight:700;">'+levelName+' member</p>'+
+        '<p style="font-size:2.2rem;margin:10px 0 0;font-weight:700;color:#e8c34a;">'+p.spendable_balance+' pts</p>'+
+        '<p style="margin:2px 0 0;font-size:0.8rem;color:#9a978c;">available to spend</p>'+
+        '<p style="margin:10px 0 0;font-size:0.8rem;color:#c9ced4;">'+p.points_this_year+' points in the last '+(p.window_days||90)+' days · '+discount+'% discount on your orders'+(p.manually_overridden?' · <span style="color:#e08a8a;">level manually restricted</span>':'')+'</p>'+
+        '<p style="margin:8px 0 0;font-size:0.95rem;color:'+(p.outstanding_balance>0?"#e08a8a":"#7cc47c")+';font-weight:700;">Outstanding: Rs '+p.outstanding_balance+'</p>'+
       '</div>'+
       (milestoneCards?'<h4>Active challenges</h4>'+milestoneCards:'')+
-      '<h4>My orders</h4>'+(orderRows||'<p class="muted">Nothing yet.</p>')+
-      '<h4>Rewards you can redeem</h4>'+(rewardCards||'<p class="muted">Nothing in the catalog right now.</p>')+
-      '<h4>My redemption history</h4>'+(redemptionRows||'<p class="muted">Nothing redeemed yet.</p>')+
+      '<h4>My orders</h4>'+(orderRows||'<p style="color:#75726a;">Nothing yet.</p>')+
+      '<h4>My account ledger</h4>'+(ledgerRows?'<div class="rp-card"><table style="width:100%;"><tr><th style="color:#9a978c;text-align:left;">Date</th><th style="color:#9a978c;text-align:left;">Desc</th><th style="color:#9a978c;text-align:left;">Billed</th><th style="color:#9a978c;text-align:left;">Paid</th></tr>'+ledgerRows+'</table></div>':'<p style="color:#75726a;">Nothing recorded yet.</p>')+
+      '<h4>Rewards you can redeem</h4>'+(rewardCards||'<p style="color:#75726a;">Nothing in the catalog right now.</p>')+
+      '<h4>Or redeem for a cash credit on your account</h4>'+
+      '<div class="rp-card"><label style="color:#c9ced4;">Points to redeem</label><input id="rp-cash-points" type="number" step="1" style="max-width:150px;">'+
+      '<button class="rp-btn" style="margin-top:8px;" onclick="redeemCashCredit()">Redeem for credit</button><div id="rp-cash-msg"></div></div>'+
+      '<h4>My redemption history</h4>'+(redemptionRows||'<p style="color:#75726a;">Nothing redeemed yet.</p>')+
       '<div id="rp-msg"></div>';
   }catch(e){document.getElementById("rp-content").textContent=e.message;}
 }
@@ -1353,6 +1526,141 @@ async function requestReward(rewardItemId){
     await apiFetch("/reseller-reward-redemptions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({reward_item_id:rewardItemId})});
     loadResellerPortal();
   }catch(e){ document.getElementById("rp-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
+}
+async function redeemCashCredit(){
+  const points = parseFloat(document.getElementById("rp-cash-points").value);
+  if(!points || points<=0){ document.getElementById("rp-cash-msg").innerHTML='<p style="color:#e08a8a;">Enter how many points to redeem</p>'; return; }
+  if(!confirm("Redeem "+points+" points for a cash credit on your account? This happens immediately and can't be undone.")) return;
+  try{
+    const res = await apiFetch("/reseller-redeem-cash",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({points:points})});
+    document.getElementById("rp-cash-msg").innerHTML='<p style="color:#7cc47c;">Redeemed — Rs '+res.credit_value+' credited to your account.</p>';
+    loadResellerPortal();
+  }catch(e){ document.getElementById("rp-cash-msg").innerHTML='<p style="color:#e08a8a;">'+e.message+'</p>'; }
+}
+async function loadResellerProgram(){
+  try{
+    const settings = await apiFetch("/reseller-program-settings");
+    document.getElementById("rpr-earn-rate").value = settings.earn_rate_per_rupee;
+    document.getElementById("rpr-window-days").value = settings.level_window_days;
+    document.getElementById("rpr-redeem-rate").value = settings.redeem_rate_per_point;
+  }catch(e){}
+  loadResellerLevelsList();
+  loadResellerRewardsList();
+  loadResellerRedemptionsList();
+  loadResellerMilestonesList();
+  loadResellerMilestoneFormOptions();
+}
+async function saveResellerProgramSettings(){
+  try{
+    await apiFetch("/reseller-program-settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      earn_rate_per_rupee: parseFloat(document.getElementById("rpr-earn-rate").value),
+      level_window_days: parseInt(document.getElementById("rpr-window-days").value,10),
+      redeem_rate_per_point: parseFloat(document.getElementById("rpr-redeem-rate").value),
+    })});
+    document.getElementById("rpr-settings-msg").innerHTML='<p style="color:var(--ok);">Saved.</p>';
+  }catch(e){ document.getElementById("rpr-settings-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
+}
+async function loadResellerLevelsList(){
+  try{
+    const levels = await apiFetch("/reseller-levels");
+    document.getElementById("rpr-levels-list").innerHTML = levels.length ? '<table><tr><th>Level</th><th>Min points</th><th>Discount</th></tr>'+
+      levels.map(function(l){return '<tr><td>'+l.level_name+'</td><td>'+l.min_points_this_year+'</td><td>'+l.discount_percent+'%</td></tr>';}).join("")+'</table>'
+      : '<p class="muted">No levels configured yet.</p>';
+  }catch(e){document.getElementById("rpr-levels-list").textContent=e.message;}
+}
+async function saveResellerLevel(){
+  try{
+    const level_name = document.getElementById("rpr-level-name").value.trim();
+    const min_points_this_year = parseFloat(document.getElementById("rpr-level-min").value);
+    const discount_percent = parseFloat(document.getElementById("rpr-level-discount").value)||0;
+    if(!level_name || isNaN(min_points_this_year)){ document.getElementById("rpr-level-msg").innerHTML='<p style="color:var(--warn);">Enter a name and minimum points</p>'; return; }
+    await apiFetch("/reseller-levels",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({level_name:level_name,min_points_this_year:min_points_this_year,discount_percent:discount_percent})});
+    document.getElementById("rpr-level-msg").innerHTML='<p style="color:var(--ok);">Saved.</p>';
+    document.getElementById("rpr-level-name").value=""; document.getElementById("rpr-level-min").value=""; document.getElementById("rpr-level-discount").value="";
+    loadResellerLevelsList();
+  }catch(e){ document.getElementById("rpr-level-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
+}
+async function loadResellerRewardsList(){
+  try{
+    const rewards = await apiFetch("/reseller-reward-items");
+    document.getElementById("rpr-rewards-list").innerHTML = rewards.length ? rewards.map(function(r){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+r.name+'</p><p class="lc-sub">'+r.points_cost+' points · '+(r.active?"active":"inactive")+'</p></div>'+
+      '<button class="secondary btn-sm" onclick="toggleResellerReward(\''+r.id+'\','+(r.active?"false":"true")+')">'+(r.active?"Deactivate":"Activate")+'</button></div>';}).join("")
+      : '<p class="muted">Nothing in the catalog yet.</p>';
+  }catch(e){document.getElementById("rpr-rewards-list").textContent=e.message;}
+}
+async function addResellerReward(){
+  try{
+    const name = document.getElementById("rpr-reward-name").value.trim();
+    const points_cost = parseFloat(document.getElementById("rpr-reward-points").value);
+    if(!name || !points_cost){ document.getElementById("rpr-reward-msg").innerHTML='<p style="color:var(--warn);">Enter a name and points cost</p>'; return; }
+    await apiFetch("/reseller-reward-items",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name,points_cost:points_cost})});
+    document.getElementById("rpr-reward-msg").innerHTML='<p style="color:var(--ok);">Added.</p>';
+    document.getElementById("rpr-reward-name").value=""; document.getElementById("rpr-reward-points").value="";
+    loadResellerRewardsList(); loadResellerMilestoneFormOptions();
+  }catch(e){ document.getElementById("rpr-reward-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
+}
+async function toggleResellerReward(id, active){
+  try{ await apiFetch("/reseller-reward-items/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({active:active==="true"})}); loadResellerRewardsList(); }catch(e){showError(e.message);}
+}
+async function loadResellerRedemptionsList(){
+  try{
+    const list = await apiFetch("/reseller-reward-redemptions");
+    const pending = list.filter(function(r){return r.status!=="shipped" && r.status!=="rejected";});
+    document.getElementById("rpr-redemptions-list").innerHTML = pending.length ? pending.map(function(r){
+      let action = "";
+      if(r.status==="requested") action = '<button class="secondary btn-sm" onclick="processRedemption(\''+r.id+'\',\'approved\')">Approve</button> <button class="secondary btn-sm" onclick="processRedemption(\''+r.id+'\',\'rejected\')" style="color:var(--warn);">Reject</button>';
+      if(r.status==="approved") action = '<input id="ship-courier-'+r.id+'" placeholder="Courier" style="width:100px;"><input id="ship-tracking-'+r.id+'" placeholder="Tracking" style="width:100px;"><button class="secondary btn-sm" onclick="shipRedemption(\''+r.id+'\')">Ship</button>';
+      return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+r.reward_name+' — '+r.points_spent+' points</p><p class="lc-sub">'+r.status+' · '+r.reseller_party_id+'</p></div>'+action+'</div>';
+    }).join("") : '<p class="muted">Nothing pending.</p>';
+  }catch(e){document.getElementById("rpr-redemptions-list").textContent=e.message;}
+}
+async function processRedemption(id, status){
+  try{ await apiFetch("/reseller-reward-redemptions/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:status})}); loadResellerRedemptionsList(); }catch(e){showError(e.message);}
+}
+async function shipRedemption(id){
+  try{
+    await apiFetch("/reseller-reward-redemptions/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"shipped",courier:document.getElementById("ship-courier-"+id).value.trim(),tracking_id:document.getElementById("ship-tracking-"+id).value.trim()})});
+    loadResellerRedemptionsList();
+  }catch(e){showError(e.message);}
+}
+function toggleMilestonePerkFields(){
+  const isPoints = document.getElementById("rpr-mlstn-perk-type").value==="bonus_points";
+  document.getElementById("rpr-mlstn-points-wrap").style.display = isPoints?"block":"none";
+  document.getElementById("rpr-mlstn-item-wrap").style.display = isPoints?"none":"block";
+}
+async function loadResellerMilestoneFormOptions(){
+  try{
+    const rewards = await apiFetch("/reseller-reward-items");
+    document.getElementById("rpr-mlstn-item-select").innerHTML = rewards.map(function(r){return '<option value="'+r.id+'">'+r.name+'</option>';}).join("");
+    const parties = await apiFetch("/parties");
+    const resellers = parties.filter(function(p){return p.type==="reseller";});
+    document.getElementById("rpr-mlstn-resellers").innerHTML = resellers.map(function(p){return '<option value="'+p.id+'">'+p.name+'</option>';}).join("");
+  }catch(e){}
+}
+async function createResellerMilestone(){
+  try{
+    const name = document.getElementById("rpr-mlstn-name").value.trim();
+    const target_value = parseFloat(document.getElementById("rpr-mlstn-target").value);
+    const start_date = document.getElementById("rpr-mlstn-start").value, end_date = document.getElementById("rpr-mlstn-end").value;
+    const perk_type = document.getElementById("rpr-mlstn-perk-type").value;
+    const reseller_party_ids = Array.from(document.getElementById("rpr-mlstn-resellers").selectedOptions).map(function(o){return o.value;});
+    if(!name || !target_value || !start_date || !end_date || !reseller_party_ids.length){ document.getElementById("rpr-mlstn-msg").innerHTML='<p style="color:var(--warn);">Fill in every field and select at least one reseller</p>'; return; }
+    const body = { name:name, target_value:target_value, start_date:start_date, end_date:end_date, perk_type:perk_type, reseller_party_ids:reseller_party_ids };
+    if(perk_type==="bonus_points") body.perk_points = parseFloat(document.getElementById("rpr-mlstn-points").value);
+    else body.perk_reward_item_id = document.getElementById("rpr-mlstn-item-select").value;
+    await apiFetch("/reseller-milestones",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    document.getElementById("rpr-mlstn-msg").innerHTML='<p style="color:var(--ok);">Created.</p>';
+    loadResellerMilestonesList();
+  }catch(e){ document.getElementById("rpr-mlstn-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
+}
+async function loadResellerMilestonesList(){
+  try{
+    const list = await apiFetch("/reseller-milestones");
+    document.getElementById("rpr-milestones-list").innerHTML = list.length ? list.map(function(m){
+      const targetNames = m.targets.map(function(t){return t.reseller_name+(t.achieved_at?" ✓":"");}).join(", ");
+      return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+m.name+'</p><p class="lc-sub">Rs '+m.target_value+' · '+m.start_date+' to '+m.end_date+' · '+targetNames+'</p></div></div>';
+    }).join("") : '<p class="muted">No milestones yet.</p>';
+  }catch(e){document.getElementById("rpr-milestones-list").textContent=e.message;}
 }
 async function applyResellerDiscount(){
   try{
@@ -1401,7 +1709,8 @@ async function manageMyOutgoing(dispatchId){
         return '<tr><td>'+it.item_name+'</td><td>'+it.expected_quantity+'</td><td>'+
           '<button class="secondary btn-sm" onclick="confirmMyPick(\''+dispatchId+'\',\''+it.item_id+'\',\''+it.id+'\',\''+it.expected_quantity+'\')">Confirm pick</button></td></tr>';
       }
-      return '<tr><td>'+it.item_name+'</td><td>'+it.scanned_quantity+'</td><td>picked</td></tr>';
+      const thumb = it.item_photo_key ? '<img src="/api/photo/'+it.item_photo_key+'" style="width:44px;height:44px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:6px;">' : '';
+      return '<tr><td>'+thumb+it.item_name+' ('+(it.item_code||'-')+')'+(it.item_description?'<br><span class="muted" style="font-size:0.75rem;">'+it.item_description+'</span>':'')+'<br><span class="muted" style="font-size:0.75rem;">ID: '+(it.resolved_origin||'-')+'</span></td><td>'+it.scanned_quantity+'</td><td>picked</td></tr>';
     }).join("");
     const allPicked = d.items.every(function(it){return it.scanned_quantity!==null;});
     document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+d.id+'</div><table><tr><th>Item</th><th>Qty</th><th></th></tr>'+itemRows+'</table>'+
@@ -1471,6 +1780,7 @@ async function viewMyWorkOrder(id){
       '<button class="secondary" onclick="uploadMyWIPPhoto(\''+w.id+'\')">Upload</button><div id="mywork-photo-msg"></div>'+
       photoSection+
       shipBackSection+'</div>';
+    scrollToDetail("mywork-detail");
   }catch(e){showError(e.message);}
 }
 async function startMyWork(id){
@@ -1550,7 +1860,8 @@ async function openDispatchAction(dispatchId){
           '<input id="pick-qty-'+it.id+'" type="number" step="0.1" value="'+it.expected_quantity+'" style="width:80px;margin-top:4px;">'+
           '<button class="secondary btn-sm" onclick="confirmPickItem(\''+dispatchId+'\',\''+it.id+'\')" style="margin-top:4px;">Confirm pick</button><div id="pick-msg-'+it.id+'"></div></td></tr>';
       }
-      return '<tr><td>'+it.item_name+'</td><td>'+it.scanned_quantity+'</td><td>picked'+(it.mismatch_flag?' <b style="color:var(--warn);">(quantity mismatch)</b>':'')+'</td></tr>';
+      const thumb = it.item_photo_key ? '<img src="/api/photo/'+it.item_photo_key+'" style="width:44px;height:44px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:6px;">' : '';
+      return '<tr><td>'+thumb+it.item_name+' ('+(it.item_code||'-')+')'+(it.item_description?'<br><span class="muted" style="font-size:0.75rem;">'+it.item_description+'</span>':'')+'<br><span class="muted" style="font-size:0.75rem;">ID: '+(it.resolved_origin||'-')+'</span></td><td>'+it.scanned_quantity+'</td><td>picked'+(it.mismatch_flag?' <b style="color:var(--warn);">(quantity mismatch)</b>':'')+'</td></tr>';
     }).join("");
     const allPicked = d.items.every(function(it){return it.scanned_quantity!==null;});
     document.getElementById("dispatch-action-area").innerHTML = '<div class="card"><div class="code-big">'+d.id+'</div><p>'+d.dispatch_type+' | status: '+d.status+'</p>'+
@@ -1605,7 +1916,7 @@ async function loadDispatchHistory(){
     const filtered = list.filter(function(d){return d.status==="shipped"||d.status==="received";}).slice(0,50);
     document.getElementById("dispatch-history").innerHTML = renderCardList(filtered, {
       icon: function(){return "✅";}, title: function(d){return d.id+' · '+d.dispatch_type;},
-      sub: function(d){return (d.from_site_name||"-")+' → '+(d.to_site_name||"-")+' · '+(d.courier||"-")+' '+(d.tracking_id||"")+' · '+d.status;},
+      sub: function(d){return (d.item_summary||"-")+' · '+(d.from_site_name||"-")+' → '+(d.to_site_name||"-")+' · '+(d.courier||"-")+' '+(d.tracking_id||"")+' · '+d.status+' · '+(d.shipped_at||d.created_at||"-").slice(0,10);},
       action: function(d){return '<button class="secondary btn-sm" onclick="editDispatchTracking(\''+d.id+'\')">Tracking</button>';},
       empty: "Nothing shipped yet in this range.",
     });
@@ -1736,18 +2047,32 @@ async function loadPOReceiveQueue(){
       });
     });
     if(!pending.length){ document.getElementById("po-receive-queue").innerHTML = "Nothing outstanding right now."; return; }
+    const sites = await apiFetch("/sites");
+    const storeOptions = sites.filter(function(s){return s.site_type==="store";}).map(function(s){return '<option value="'+s.id+'">'+s.name+'</option>';}).join("");
     document.getElementById("po-receive-queue").innerHTML = pending.map(function(p){
       return '<div class="list-card"><div class="lc-icon">📦</div>'+
         '<div class="lc-body"><p class="lc-title">'+(p.line.item_name||"")+' — '+p.po.supplier_name+'</p><p class="lc-sub">'+p.po.id+' · '+p.outstanding+' of '+p.line.quantity_ordered+' still outstanding</p>'+
-        '<div class="row" style="margin-top:6px;"><input id="po-recv-qty-'+p.line.id+'" type="number" step="0.01" value="'+p.outstanding+'" style="flex:1;">'+
-        '<button class="secondary btn-sm" onclick="receivePOLineInline(\''+p.line.id+'\')">Receive</button></div><div id="po-recv-msg-'+p.line.id+'"></div></div></div>';
+        '<label style="font-size:0.8rem;">Quantity actually received</label><input id="po-recv-qty-'+p.line.id+'" type="number" step="0.01" value="'+p.outstanding+'">'+
+        '<label style="font-size:0.8rem;">Stock into</label><select id="po-recv-site-'+p.line.id+'">'+storeOptions+'</select>'+
+        '<button class="secondary btn-sm" onclick="reviewPOReceive(\''+p.line.id+'\',\''+(p.line.item_name||"").replace(/'/g,"")+'\')" style="margin-top:6px;">Receive</button>'+
+        '<div id="po-recv-review-'+p.line.id+'"></div><div id="po-recv-msg-'+p.line.id+'"></div></div></div>';
     }).join("");
   }catch(e){document.getElementById("po-receive-queue").textContent=e.message;}
+}
+function reviewPOReceive(lineId, itemName){
+  const qty = document.getElementById("po-recv-qty-"+lineId).value;
+  const siteSelect = document.getElementById("po-recv-site-"+lineId);
+  const siteName = siteSelect.options[siteSelect.selectedIndex] ? siteSelect.options[siteSelect.selectedIndex].text : "-";
+  document.getElementById("po-recv-review-"+lineId).innerHTML = '<div class="card" style="background:#fff8e1;margin-top:6px;"><p><b>Confirm:</b> check the physical item matches "'+itemName+'" — receiving '+qty+' into '+siteName+'.</p>'+
+    '<button class="secondary" onclick="receivePOLineInline(\''+lineId+'\')">Yes, this is correct</button> '+
+    '<button class="secondary btn-sm" onclick="document.getElementById(\'po-recv-review-'+lineId+'\').innerHTML=\'\'">Cancel</button></div>';
 }
 async function receivePOLineInline(lineId){
   try{
     const qty = parseFloat(document.getElementById("po-recv-qty-"+lineId).value);
-    const res = await apiFetch("/purchase-order-items/"+lineId+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_received:qty})});
+    const siteId = document.getElementById("po-recv-site-"+lineId).value;
+    const res = await apiFetch("/purchase-order-items/"+lineId+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_received:qty,site_id:siteId})});
+    document.getElementById("po-recv-review-"+lineId).innerHTML = "";
     let itemCode = res.lot_id;
     try{
       const poList = await apiFetch("/purchase-orders");
@@ -1873,16 +2198,19 @@ async function createCO(){
 async function loadCOs(){
   try{
     const list=await apiFetch("/customer-orders");
-    document.getElementById("co-list").innerHTML = renderCardList(list, {
-      icon: function(){return "🛍️";}, title: function(o){return o.customer_name||o.reseller_name;}, sub: function(o){return o.id+' · '+o.items.length+' line(s) · '+o.status;},
-      onClick: function(o){return "viewCO('"+o.id+"')";}, empty: "No customer orders yet.",
+    const partyQ = document.getElementById("co-filter-party").value;
+    const from = document.getElementById("co-filter-from").value, to = document.getElementById("co-filter-to").value;
+    const filtered = filterListByPartyAndDate(list, partyQ, from, to, function(o){return o.customer_name||o.reseller_name;}, function(o){return o.order_date||o.created_at;});
+    document.getElementById("co-list").innerHTML = renderCardList(filtered, {
+      icon: function(){return "🛍️";}, title: function(o){return o.customer_name||o.reseller_name;}, sub: function(o){return o.id+' · '+o.items.length+' line(s) · '+o.status+' · '+(o.order_date||o.created_at||"-").slice(0,10);},
+      onClick: function(o){return "viewCO('"+o.id+"')";}, empty: "No customer orders match this filter.",
     });
   }catch(e){document.getElementById("co-list").textContent=e.message;}
 }
 async function viewCO(id){
   try{
     const o=await apiFetch("/customer-orders/"+id);
-    let html='<div class="card"><div class="code-big">'+o.id+'</div><p>'+(o.customer_name||o.reseller_name)+(o.reseller_name?' (reseller)':'')+'</p><p>Status: <span class="stage-badge">'+o.status+'</span></p>';
+    let html='<div class="card"><div class="code-big">'+o.id+'</div><p>'+(o.customer_name||o.reseller_name)+(o.reseller_name?' (reseller)':'')+'</p><p>Placed: '+(o.order_date||o.created_at||"-").slice(0,10)+'</p><p>Status: <span class="stage-badge">'+o.status+'</span></p>';
     const itemRows = o.items.map(function(line){
       let cell = '<tr><td>'+(line.item_name||line.description)+'</td><td>'+line.quantity+'</td><td>'+(line.unit_price!=null?"Rs "+line.unit_price:"-")+'</td><td>'+(line.current_stock!==null?line.current_stock:"-")+'</td>';
       if(line.linked_work_order){
@@ -1912,6 +2240,7 @@ async function viewCO(id){
     }
     html+='</div>';
     document.getElementById("co-detail").innerHTML=html;
+    scrollToDetail("co-detail");
   }catch(e){showError(e.message);}
 }
 async function updateCOTracking(id){
@@ -2006,9 +2335,12 @@ async function createSale(){
 }
 async function loadSales(){
   try{ const list=await apiFetch("/sales");
-    document.getElementById("sales-list").innerHTML = renderCardList(list.slice(0,20), {
-      icon: function(){return "💰";}, title: function(s){return s.id;}, sub: function(s){return (s.lines?s.lines.length:0)+' line(s)';},
-      amount: function(s){return "Rs "+s.total_amount;}, empty: "None yet.",
+    const partyQ = document.getElementById("sales-filter-party").value;
+    const from = document.getElementById("sales-filter-from").value, to = document.getElementById("sales-filter-to").value;
+    const filtered = filterListByPartyAndDate(list, partyQ, from, to, function(s){return s.customer_name||s.reseller_name;}, function(s){return s.sale_date;});
+    document.getElementById("sales-list").innerHTML = renderCardList(filtered.slice(0,20), {
+      icon: function(){return "💰";}, title: function(s){return s.customer_name||s.reseller_name||s.id;}, sub: function(s){return s.id+' · '+(s.lines?s.lines.length:0)+' line(s) · '+(s.sale_date||"-").slice(0,10);},
+      amount: function(s){return "Rs "+s.total_amount;}, empty: "No sales match this filter.",
     });
   }catch(e){document.getElementById("sales-list").textContent=e.message;}
 }
@@ -2145,11 +2477,32 @@ async function createSupplierBill(){
 }
 async function loadSupplierBills(){
   try{ const list=await apiFetch("/supplier-bills");
-    document.getElementById("sb-list").innerHTML = renderCardList(list.slice(0,20), {
-      icon: function(){return "🧾";}, title: function(b){return b.supplier_name;}, sub: function(b){return b.id;},
-      amount: function(b){return "Rs "+b.amount;}, empty: "None yet.",
+    const partyQ = document.getElementById("sb-filter-party").value;
+    const from = document.getElementById("sb-filter-from").value, to = document.getElementById("sb-filter-to").value;
+    const filtered = filterListByPartyAndDate(list, partyQ, from, to, function(b){return b.supplier_name;}, function(b){return b.bill_date;});
+    document.getElementById("sb-list").innerHTML = renderCardList(filtered.slice(0,20), {
+      icon: function(){return "🧾";}, title: function(b){return b.supplier_name;}, sub: function(b){return b.id+' · '+(b.bill_date||"-").slice(0,10);},
+      amount: function(b){return "Rs "+b.amount;}, empty: "No bills match this filter.",
+      onClick: function(b){return "viewSupplierBill('"+b.id+"')";},
     });
   }catch(e){document.getElementById("sb-list").textContent=e.message;}
+}
+async function viewSupplierBill(id){
+  try{
+    const b = await apiFetch("/supplier-bills/"+id);
+    const rows = b.items.map(function(line){
+      const taxAmt = line.tax_amount||0;
+      return '<tr><td>'+(line.item_name||"-")+' ('+(line.item_code||"-")+')</td><td>'+line.quantity+'</td><td>'+line.rate+'</td><td>'+(line.tax_rate||0)+'%</td><td>'+line.line_total+'</td></tr>';
+    }).join("");
+    document.getElementById("sb-detail").innerHTML = '<div class="card"><div class="code-big">'+b.id+'</div>'+
+      '<p>'+b.supplier_name+' | Bill date: '+(b.bill_date||"-")+' | Bill #: '+(b.bill_number||"-")+'</p>'+
+      (b.purchase_order_id?'<p class="muted">Against PO: '+b.purchase_order_id+'</p>':'<p class="muted">Cash purchase — no PO</p>')+
+      '<table><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Tax</th><th>Line total</th></tr>'+rows+'</table>'+
+      '<p><b>Total: Rs '+b.amount+'</b></p>'+
+      (b.description?'<p class="muted">'+b.description+'</p>':'')+
+      '</div>';
+    scrollToDetail("sb-detail");
+  }catch(e){showError(e.message);}
 }
 
 // ---------------- Expenses ----------------
@@ -2200,7 +2553,16 @@ async function submitPayment(direction){
     const res = await apiFetch("/payments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({party_id:party_id,direction:direction,amount:amount,reference:refField?refField.value.trim():null,allocations:allocations})});
     document.getElementById(resultId).innerHTML='<p style="color:var(--ok);">Recorded'+(res.unallocated?' — Rs '+res.unallocated+' left as an advance on their account':'')+'</p>';
     document.getElementById(amtId).value=""; loadOutstandingFor(direction);
+    if(direction==="receivable") loadReceivableHistory();
   }catch(e){showError(e.message);}
+}
+async function loadReceivableHistory(){
+  try{
+    const list = await apiFetch("/payments?direction=receivable");
+    if(!list.length){ document.getElementById("recv-history").innerHTML = "<p class='muted'>Nothing recorded yet.</p>"; return; }
+    const rows = list.slice(0,15).map(function(p){return '<tr><td>'+(p.payment_date||"-").slice(0,10)+'</td><td>'+(p.party_name||"-")+'</td><td>Rs '+p.amount+'</td><td>'+(p.reference||"-")+'</td></tr>';}).join("");
+    document.getElementById("recv-history").innerHTML = '<table><tr><th>Date</th><th>Party</th><th>Amount</th><th>Reference</th></tr>'+rows+'</table>';
+  }catch(e){document.getElementById("recv-history").textContent=e.message;}
 }
 
 // ---------------- General Journal ----------------
@@ -2224,13 +2586,27 @@ async function loadPnL(){
     const from=document.getElementById("pnl-from").value, to=document.getElementById("pnl-to").value;
     const qs=from&&to?"?from="+from+"&to="+to:"";
     const r=await apiFetch("/reports/pnl"+qs);
+    window.__pnlDrillRange = {from:from,to:to};
     document.getElementById("pnl-result").innerHTML='<div class="kpi-grid">'+
-      '<div class="kpi"><div class="num">Rs '+r.net_revenue+'</div><div class="lbl">Net revenue</div></div>'+
-      '<div class="kpi"><div class="num">Rs '+r.cogs+'</div><div class="lbl">COGS</div></div>'+
+      '<div class="kpi" style="cursor:pointer;" onclick=\'drillPnl('+JSON.stringify(r.net_revenue_account_ids)+',"Net revenue")\'><div class="num">Rs '+r.net_revenue+'</div><div class="lbl">Net revenue</div></div>'+
+      '<div class="kpi" style="cursor:pointer;" onclick=\'drillPnl('+JSON.stringify(r.cogs_account_ids)+',"COGS")\'><div class="num">Rs '+r.cogs+'</div><div class="lbl">COGS</div></div>'+
       '<div class="kpi"><div class="num">Rs '+r.gross_profit+'</div><div class="lbl">Gross profit</div></div>'+
-      '<div class="kpi"><div class="num">Rs '+r.expenses+'</div><div class="lbl">Expenses</div></div>'+
+      '<div class="kpi" style="cursor:pointer;" onclick=\'drillPnl('+JSON.stringify(r.expense_account_ids)+',"Expenses")\'><div class="num">Rs '+r.expenses+'</div><div class="lbl">Expenses</div></div>'+
       '<div class="kpi"><div class="num">Rs '+r.net_profit+'</div><div class="lbl">Net profit</div></div>'+
-      '</div>';
+      '</div><p class="muted">Click Net revenue, COGS, or Expenses to see the transactions behind that figure.</p>'+
+      '<div id="pnl-drill"></div>';
+  }catch(e){showError(e.message);}
+}
+async function drillPnl(accountIds, label){
+  try{
+    if(!accountIds||!accountIds.length){ document.getElementById("pnl-drill").innerHTML='<p class="muted">Nothing to show.</p>'; return; }
+    const range = window.__pnlDrillRange||{};
+    let qs="?account_ids="+accountIds.join(","); if(range.from&&range.to) qs+="&from="+range.from+"&to="+range.to;
+    const r = await apiFetch("/ledger"+qs);
+    const rows = r.entries.map(function(e){return '<tr><td>'+e.entry_date+'</td><td>'+(e.reference_id||"-")+'</td><td>'+(e.description||"")+'</td><td>'+(e.debit||"")+'</td><td>'+(e.credit||"")+'</td></tr>';}).join("");
+    document.getElementById("pnl-drill").innerHTML = '<div class="card"><h4 style="margin-top:0;">'+label+' — underlying transactions</h4>'+
+      (rows?'<table><tr><th>Date</th><th>Reference</th><th>Desc</th><th>Debit</th><th>Credit</th></tr>'+rows+'</table>':'<p class="muted">No entries.</p>')+'</div>';
+    scrollToDetail("pnl-drill");
   }catch(e){showError(e.message);}
 }
 async function loadLedgerView(){
@@ -2239,8 +2615,8 @@ async function loadLedgerView(){
     const from=document.getElementById("ledger-from").value, to=document.getElementById("ledger-to").value;
     let qs="?account_id="+accountId; if(from&&to) qs+="&from="+from+"&to="+to;
     const r=await apiFetch("/ledger"+qs);
-    const rows=r.entries.map(function(e){return '<tr><td>'+e.entry_date+'</td><td>'+(e.description||"")+'</td><td>'+(e.debit||"")+'</td><td>'+(e.credit||"")+'</td></tr>';}).join("");
-    document.getElementById("ledger-result").innerHTML = (rows?'<table><tr><th>Date</th><th>Desc</th><th>Debit</th><th>Credit</th></tr>'+rows+'</table>':'<p class="muted">No entries.</p>')+
+    const rows=r.entries.map(function(e){return '<tr><td>'+e.entry_date+'</td><td>'+(e.reference_id||"-")+'</td><td>'+(e.description||"")+'</td><td>'+(e.debit||"")+'</td><td>'+(e.credit||"")+'</td></tr>';}).join("");
+    document.getElementById("ledger-result").innerHTML = (rows?'<table><tr><th>Date</th><th>Reference</th><th>Desc</th><th>Debit</th><th>Credit</th></tr>'+rows+'</table>':'<p class="muted">No entries.</p>')+
       '<p><b>Total debit: Rs '+r.total_debit+' | Total credit: Rs '+r.total_credit+'</b></p>';
   }catch(e){document.getElementById("ledger-result").textContent=e.message;}
 }
@@ -2266,8 +2642,43 @@ async function loadParties(){
     document.getElementById("parties-list").innerHTML = renderCardList(list, {
       icon: function(p){return p.type==="worker"?"🧵":(p.type==="supplier"?"🏭":"🧑");}, title: function(p){return p.name;}, sub: function(p){return p.type;},
       amount: function(p){return "Rs "+p.balance;}, empty: "None yet.",
+      onClick: function(p){return "viewParty('"+p.id+"')";},
     });
   }catch(e){document.getElementById("parties-list").textContent=e.message;}
+}
+async function viewParty(id){
+  try{
+    const list = await apiFetch("/parties");
+    const p = list.find(function(x){return x.id===id;});
+    if(!p){ showError("Party not found"); return; }
+    document.getElementById("party-detail").innerHTML = '<div class="card"><div class="code-big">'+p.name+'</div><p class="muted">'+p.id+' | Balance: Rs '+p.balance+'</p>'+
+      '<label>Name</label><input id="ep-name" value="'+p.name.replace(/"/g,"&quot;")+'">'+
+      '<label>Type</label><select id="ep-type" onchange="toggleEditPartyResellerFields()"><option value="customer"'+(p.type==="customer"?" selected":"")+'>Customer</option><option value="reseller"'+(p.type==="reseller"?" selected":"")+'>Reseller</option><option value="supplier"'+(p.type==="supplier"?" selected":"")+'>Supplier</option><option value="worker"'+(p.type==="worker"?" selected":"")+'>Worker</option></select>'+
+      '<label>Phone</label><input id="ep-phone" value="'+(p.phone||"")+'">'+
+      '<label>Notes</label><textarea id="ep-notes" rows="2">'+(p.notes||"")+'</textarea>'+
+      '<div id="ep-reseller-fields" style="display:'+(p.type==="reseller"?"block":"none")+';">'+
+        '<label>Manually restrict level (e.g. for outstanding payments) — leave blank for normal, computed level</label>'+
+        '<input id="ep-level-override" value="'+(p.manual_level_override||"")+'" placeholder="e.g. Regular">'+
+      '</div>'+
+      '<button class="secondary" onclick="savePartyEdit(\''+id+'\')">Save changes</button><div id="party-edit-msg"></div></div>';
+    scrollToDetail("party-detail");
+  }catch(e){showError(e.message);}
+}
+function toggleEditPartyResellerFields(){
+  document.getElementById("ep-reseller-fields").style.display = document.getElementById("ep-type").value==="reseller"?"block":"none";
+}
+async function savePartyEdit(id){
+  try{
+    const type = document.getElementById("ep-type").value;
+    const body = {
+      name:document.getElementById("ep-name").value.trim(), type:type,
+      phone:document.getElementById("ep-phone").value.trim(), notes:document.getElementById("ep-notes").value.trim(),
+    };
+    if(type==="reseller") body.manual_level_override = document.getElementById("ep-level-override").value.trim() || null;
+    await apiFetch("/parties/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    document.getElementById("party-edit-msg").innerHTML='<p style="color:var(--ok);">Saved.</p>';
+    loadParties();
+  }catch(e){ document.getElementById("party-edit-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
 
 // ---------------- Users ----------------
@@ -2304,10 +2715,66 @@ async function loadUsers(){
     document.getElementById("users-list").innerHTML = renderCardList(list, {
       icon: function(){return "👤";}, title: function(u){return u.name+' (@'+u.username+')';}, sub: function(u){return u.role;},
       amount: function(u){return u.active?"Active":"Disabled";}, empty: "None yet.",
+      onClick: function(u){return "viewUser("+u.id+")";},
     });
   }catch(e){document.getElementById("users-list").textContent=e.message;}
 }
+async function viewUser(id){
+  try{
+    const list = await apiFetch("/users");
+    const u = list.find(function(x){return x.id===id;});
+    if(!u){ showError("User not found"); return; }
+    document.getElementById("user-detail").innerHTML = '<div class="card"><div class="code-big">'+u.name+' (@'+u.username+')</div><p class="muted">'+(u.active?"Active":"Disabled")+' | Last login: '+(u.last_login_at||"never")+'</p>'+
+      '<label>Name</label><input id="eu-name" value="'+u.name.replace(/"/g,"&quot;")+'">'+
+      '<label>Username</label><input id="eu-username" value="'+u.username+'">'+
+      '<label>Role</label><select id="eu-role"><option value="admin"'+(u.role==="admin"?" selected":"")+'>Admin</option><option value="accountant"'+(u.role==="accountant"?" selected":"")+'>Accountant</option><option value="worker"'+(u.role==="worker"?" selected":"")+'>Worker</option><option value="dispatch"'+(u.role==="dispatch"?" selected":"")+'>Dispatch</option><option value="reseller"'+(u.role==="reseller"?" selected":"")+'>Reseller</option></select>'+
+      '<button class="secondary" onclick="saveUserEdit('+id+')">Save changes</button><div id="user-edit-msg"></div>'+
+      '<h4>Reset PIN</h4><label>New PIN (min 6 characters)</label><input id="eu-new-pin" type="password">'+
+      '<button class="secondary" onclick="resetUserPin('+id+')">Reset PIN</button><div id="user-pin-msg"></div>'+
+      '<h4>Session</h4><button class="secondary btn-sm" onclick="revokeUserSessions('+id+')">Log out everywhere</button> '+
+      (u.active?'<button class="secondary btn-sm" onclick="setUserActive('+id+',false)" style="color:var(--warn);border-color:var(--warn);">Deactivate</button>':'<button class="secondary btn-sm" onclick="setUserActive('+id+',true)">Reactivate</button>')+
+      '<div id="user-status-msg"></div></div>';
+    scrollToDetail("user-detail");
+  }catch(e){showError(e.message);}
+}
+async function saveUserEdit(id){
+  try{
+    await apiFetch("/users/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      action:"edit", name:document.getElementById("eu-name").value.trim(), username:document.getElementById("eu-username").value.trim(), role:document.getElementById("eu-role").value,
+    })});
+    document.getElementById("user-edit-msg").innerHTML='<p style="color:var(--ok);">Saved.</p>'; loadUsers();
+  }catch(e){ document.getElementById("user-edit-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
+}
+async function resetUserPin(id){
+  const newPin = document.getElementById("eu-new-pin").value;
+  if(!newPin){ alert("Enter a new PIN"); return; }
+  try{
+    await apiFetch("/users/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"reset_pin", new_pin:newPin})});
+    document.getElementById("user-pin-msg").innerHTML='<p style="color:var(--ok);">PIN reset. They\'ll need to log in again everywhere.</p>';
+    document.getElementById("eu-new-pin").value="";
+  }catch(e){ document.getElementById("user-pin-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
+}
+async function revokeUserSessions(id){
+  try{ await apiFetch("/users/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"revoke_sessions"})}); document.getElementById("user-status-msg").innerHTML='<p style="color:var(--ok);">Logged out everywhere.</p>'; }catch(e){showError(e.message);}
+}
+async function setUserActive(id, active){
+  try{ await apiFetch("/users/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({action: active?"activate":"deactivate"})}); viewUser(id); loadUsers(); }catch(e){showError(e.message);}
+}
 
+function toggleChangePinForm(){
+  const el = document.getElementById("change-pin-form");
+  el.style.display = el.style.display==="none" ? "block" : "none";
+}
+async function submitChangeMyPin(){
+  try{
+    const current_pin = document.getElementById("cp-current").value;
+    const new_pin = document.getElementById("cp-new").value;
+    if(!current_pin || !new_pin){ document.getElementById("cp-msg").innerHTML='<p style="color:var(--warn);">Enter both PINs</p>'; return; }
+    await apiFetch("/change-my-pin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({current_pin:current_pin,new_pin:new_pin})});
+    document.getElementById("cp-msg").innerHTML='<p style="color:var(--ok);">PIN changed.</p>';
+    document.getElementById("cp-current").value=""; document.getElementById("cp-new").value="";
+  }catch(e){ document.getElementById("cp-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
+}
 if(getSession()) boot();
 </script>
 </body>

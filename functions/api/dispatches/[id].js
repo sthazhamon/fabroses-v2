@@ -7,7 +7,9 @@ export async function onRequestGet({ params, env }) {
   if (!dispatch) return Response.json({ error: "not found" }, { status: 404 });
 
   const { results: items } = await env.DB.prepare(
-    `SELECT di.*, i.name AS item_name, i.item_code, COALESCE(l.origin_lot_id, l.id) AS resolved_origin
+    `SELECT di.*, i.name AS item_name, i.item_code, i.description AS item_description,
+            COALESCE(l.origin_lot_id, l.id) AS resolved_origin,
+            (SELECT ip.r2_key FROM item_photos ip WHERE ip.item_id = di.item_id ORDER BY ip.uploaded_at ASC LIMIT 1) AS item_photo_key
      FROM dispatch_items di LEFT JOIN items i ON i.id = di.item_id LEFT JOIN item_lots l ON l.id = di.lot_id
      WHERE di.dispatch_id = ?`
   ).bind(params.id).all();
