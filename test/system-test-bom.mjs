@@ -31,61 +31,47 @@ async function run() {
   const bomList = await (await bomMod.onRequestGet({ env, params: { id: saree.id } })).json();
   assert(bomList.length === 2, "BOM correctly shows both raw materials");
 
-  section("=== WO creation without an intended item is now rejected ===");
+  section("=== WO creation without an intended item is still rejected ===");
   const noItemAttempt = await (await woMod.onRequestPost({ request: req({ description: "Job", worker_site_id: worker.id, target_quantity: 1 }), env, data: {} })).json();
-  assert(noItemAttempt.error, "the finished item is now mandatory, not optional");
+  assert(noItemAttempt.error, "the finished item is still mandatory");
 
-  section("=== Case 1: worker already has enough thread from a previous job — no dispatch needed ===");
+  section("=== CRITICAL: WO creation now only SUGGESTS material - nothing is reserved or dispatched ===");
   await lotsMod.onRequestPost({ request: req({ item_id: thread.id, site_id: worker.id, quantity: 10, source_type: "opening_stock" }), env, data: {} });
   await lotsMod.onRequestPost({ request: req({ item_id: fabric.id, site_id: store.id, quantity: 20, source_type: "direct_intake" }), env, data: {} });
 
   const wo1 = await (await woMod.onRequestPost({ request: req({ description: "Job 1", worker_site_id: worker.id, intended_item_id: saree.id, target_quantity: 2 }), env, data: { user: { name: "Admin" } } })).json();
-  const threadResult = wo1.bom_results.find((r) => r.raw_material_item_id === thread.id);
-  assert(threadResult.resolution === "already_at_worker" && threadResult.quantity === 4, `thread (needed 2x2=4) correctly resolved from the worker's own existing stock, no dispatch (got ${JSON.stringify(threadResult)})`);
 
-  const threadIssue = await env.DB.prepare("SELECT * FROM material_issues WHERE work_order_id = ? AND lot_id IN (SELECT id FROM item_lots WHERE item_id = ?)").bind(wo1.id, thread.id).first();
-  assert(threadIssue && threadIssue.quantity_issued === 4, "a real, reconcilable material issue was still created even though nothing physically moved");
+  const threadSuggestion = wo1.material_suggestions.find((r) => r.raw_material_item_id === thread.id);
+  assert(threadSuggestion.quantity === 4, `thread suggestion correctly reflects the BOM (2 per unit x 2 units = 4), got ${JSON.stringify(threadSuggestion)}`);
+  const fabricSuggestion = wo1.material_suggestions.find((r) => r.raw_material_item_id === fabric.id);
+  assert(fabricSuggestion.quantity === 10, `fabric suggestion correctly reflects the BOM (5 per unit x 2 units = 10), got ${JSON.stringify(fabricSuggestion)}`);
 
-  const threadStockAfter = await env.DB.prepare("SELECT quantity_balance FROM item_lots WHERE item_id = ? AND site_id = ?").bind(thread.id, worker.id).first();
-  assert(threadStockAfter.quantity_balance === 10, `worker's thread stock correctly stays at 10 (reserved via the material issue, but NOT yet consumed — actual consumption is deferred to Mark Job Done), got ${threadStockAfter.quantity_balance}`);
+  const noIssueYet = await env.DB.prepare("SELECT COUNT(*) AS c FROM material_issues WHERE work_order_id = ?").bind(wo1.id).first();
+  assert(noIssueYet.c === 0, "CRITICAL: no material_issue record exists yet - creation alone doesn't reserve anything");
 
-  section("=== Case 2: fabric isn't at the worker, but the store has enough — auto-dispatch created ===");
-  const fabricResult = wo1.bom_results.find((r) => r.raw_material_item_id === fabric.id);
-  assert(fabricResult.resolution === "dispatch_created" && fabricResult.quantity === 10, `fabric (needed 5x2=10) correctly triggers an auto-dispatch from the store (got ${JSON.stringify(fabricResult)})`);
+  const noDispatchYet = await env.DB.prepare("SELECT COUNT(*) AS c FROM dispatches WHERE related_work_order_id = ?").bind(wo1.id).first();
+  assert(noDispatchYet.c === 0, "CRITICAL: no dispatch was auto-created - the store's fabric was never touched");
 
-  const dispatch = await env.DB.prepare("SELECT * FROM dispatches WHERE id = ?").bind(fabricResult.dispatch_id).first();
-  assert(dispatch.status === "pending_pick" && dispatch.dispatch_type === "stock_transfer", "the auto-created dispatch sits pending_pick, exactly like a manually-created one — nothing skips the two-step process");
+  const threadStockUntouched = await env.DB.prepare("SELECT quantity_balance FROM item_lots WHERE item_id = ? AND site_id = ?").bind(thread.id, worker.id).first();
+  assert(threadStockUntouched.quantity_balance === 10, "worker's thread stock is completely untouched at creation time");
 
-  const storeFabricAfter = await env.DB.prepare("SELECT quantity_balance FROM item_lots WHERE item_id = ? AND site_id = ?").bind(fabric.id, store.id).first();
-  assert(storeFabricAfter.quantity_balance === 20, "CRITICAL: the store's fabric lot is completely untouched at creation time — the real decrement only happens later at actual ship time, matching the two-step design");
+  const fabricStockUntouched = await env.DB.prepare("SELECT quantity_balance FROM item_lots WHERE item_id = ? AND site_id = ?").bind(fabric.id, store.id).first();
+  assert(fabricStockUntouched.quantity_balance === 20, "store's fabric stock is completely untouched at creation time");
 
-  section("=== Case 3: multiple lots at the store combine to cover one requirement ===");
-  const item2 = await (await itemsMod.onRequestPost({ request: req({ item_type: "raw_material", name: "Silk" }), env })).json();
-  const saree2 = await (await itemsMod.onRequestPost({ request: req({ item_type: "finished_good", name: "Silk Saree" }), env })).json();
-  await bomMod.onRequestPost({ request: req({ lines: [{ raw_material_item_id: item2.id, quantity_required: 15 }] }), env, params: { id: saree2.id } });
-  await lotsMod.onRequestPost({ request: req({ item_id: item2.id, site_id: store.id, quantity: 10, source_type: "direct_intake" }), env, data: {} });
-  await lotsMod.onRequestPost({ request: req({ item_id: item2.id, site_id: store.id, quantity: 10, source_type: "direct_intake" }), env, data: {} });
+  section("=== The explicit issue-material step is what actually attaches material, requiring a real lot choice ===");
+  const threadLot = await env.DB.prepare("SELECT id FROM item_lots WHERE item_id = ? AND site_id = ?").bind(thread.id, worker.id).first();
+  const issueMod = await import("../functions/api/work-orders/[id]/issue-material.js");
+  const issueRes = await issueMod.onRequestPost({ request: req({ lot_id: threadLot.id, quantity: threadSuggestion.quantity }), env, params: { id: wo1.id } });
+  const issueJson = await issueRes.json();
+  assert(issueJson.direct_issue === true && !issueJson.error, "explicitly issuing from the worker's own lot, using the suggested quantity, succeeds directly");
 
-  const wo2 = await (await woMod.onRequestPost({ request: req({ description: "Job 2", worker_site_id: worker.id, intended_item_id: saree2.id, target_quantity: 1 }), env, data: {} })).json();
-  const silkResult = wo2.bom_results.find((r) => r.raw_material_item_id === item2.id);
-  assert(silkResult.resolution === "dispatch_created" && silkResult.lots_used === 2, `needing 15, with two lots of 10 each at the store, correctly combines BOTH lots into one dispatch (got lots_used=${silkResult.lots_used})`);
+  const issueNow = await env.DB.prepare("SELECT * FROM material_issues WHERE work_order_id = ?").bind(wo1.id).first();
+  assert(issueNow && issueNow.lot_id === threadLot.id && issueNow.quantity_issued === 4, "CRITICAL: the material issue now exists, tied to the SPECIFIC lot that was explicitly chosen");
 
-  const dispatchItems = await env.DB.prepare("SELECT * FROM dispatch_items WHERE dispatch_id = ?").bind(silkResult.dispatch_id).all();
-  const totalExpected = dispatchItems.results.reduce((s, d) => s + d.expected_quantity, 0);
-  assert(dispatchItems.results.length === 2 && totalExpected === 15, `the dispatch correctly has 2 separate line items (one per lot), summing to exactly 15 (got ${totalExpected})`);
-
-  section("=== Case 4: genuinely unmet — neither worker nor store has enough ===");
-  const rareItem = await (await itemsMod.onRequestPost({ request: req({ item_type: "raw_material", name: "Rare Silk" }), env })).json();
-  const saree3 = await (await itemsMod.onRequestPost({ request: req({ item_type: "finished_good", name: "Rare Saree" }), env })).json();
-  await bomMod.onRequestPost({ request: req({ lines: [{ raw_material_item_id: rareItem.id, quantity_required: 100 }] }), env, params: { id: saree3.id } });
-
-  const wo3 = await (await woMod.onRequestPost({ request: req({ description: "Job 3", worker_site_id: worker.id, intended_item_id: saree3.id, target_quantity: 1 }), env, data: {} })).json();
-  const rareResult = wo3.bom_results.find((r) => r.raw_material_item_id === rareItem.id);
-  assert(rareResult.resolution === "unmet", "with zero stock anywhere, the line is correctly left unmet — no fake dispatch, no fake issue");
-
-  const dispatchQueueMod = await import("../functions/api/dispatch-queue.js");
-  const queue = await (await dispatchQueueMod.onRequestGet({ env })).json();
-  assert(queue.material_to_workers.some((w) => w.id === wo3.id), "the unmet WO correctly surfaces in the EXISTING dispatch queue detection, without needing any new tracking mechanism");
+  section("=== Rework jobs correctly have no material suggestions at all ===");
+  const reworkLot = await (await lotsMod.onRequestPost({ request: req({ item_id: saree.id, site_id: store.id, quantity: 1, source_type: "opening_stock" }), env, data: {} })).json();
+  const reworkWO = await (await woMod.onRequestPost({ request: req({ description: "Rework it", worker_site_id: worker.id, intended_item_id: saree.id, target_quantity: 1, job_type: "rework", rework_lot_id: reworkLot.id }), env, data: {} })).json();
+  assert(reworkWO.material_suggestions.length === 0, "rework jobs correctly have zero material suggestions");
 
   console.log(`\n${passed} passed, ${failed} failed\n`);
   if (failed > 0) process.exit(1);

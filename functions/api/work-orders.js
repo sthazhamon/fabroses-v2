@@ -1,5 +1,4 @@
 import { nextId } from "./_ledger.js";
-import { fulfillBomLines } from "./_bom.js";
 
 export async function onRequestGet({ env }) {
   const { results } = await env.DB.prepare(
@@ -78,19 +77,21 @@ export async function onRequestPost({ request, env, data }) {
     }
   }
 
-  // BOM auto-fulfillment: worker's own stock first, then the store,
-  // otherwise the need surfaces through the existing dispatch queue.
-  // material_lines lets the creator override the BOM-suggested quantities
-  // before this runs; if omitted, the BOM's own suggested quantities are used.
-  let bomResults = [];
+  // BOM suggestion only - this used to auto-fulfill (reserve stock / create a
+  // dispatch) immediately at creation time, without anyone choosing which
+  // specific lot to pull from or confirming the quantity first. That's
+  // deliberately removed: material now only ever gets attached to a job
+  // through an explicit "Issue material" confirmation on the WO itself,
+  // pre-filled with this suggestion but requiring a real lot choice.
+  let materialSuggestions = [];
   if (effectiveJobType === "production") {
     let lines = material_lines;
     if (!lines) {
       const { results: bom } = await env.DB.prepare("SELECT * FROM item_bom WHERE finished_item_id = ?").bind(intended_item_id).all();
       lines = bom.map((b) => ({ raw_material_item_id: b.raw_material_item_id, quantity: b.quantity_required * (target_quantity || 1) }));
     }
-    if (lines.length) bomResults = await fulfillBomLines(env, { workOrderId: id, workerSiteId: worker_site_id, lines, actorName: data?.user?.name });
+    materialSuggestions = lines;
   }
 
-  return Response.json({ id, bom_results: bomResults });
+  return Response.json({ id, material_suggestions: materialSuggestions });
 }

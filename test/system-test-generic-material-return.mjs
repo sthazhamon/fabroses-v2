@@ -12,12 +12,13 @@ const env = { DB: wrapD1(sqliteDb), PHOTOS: makeFakeR2(), AUTH_SECRET: "test-sec
 function req(b) { return { json: async () => b }; }
 
 async function run() {
-  section("=== Setup: worker already has raw material (from BOM auto-resolution), drawn against by TWO jobs ===");
+  section("=== Setup: worker already has raw material, explicitly issued to TWO jobs ===");
   const sitesMod = await import("../functions/api/sites.js");
   const itemsMod = await import("../functions/api/items.js");
   const lotsMod = await import("../functions/api/item-lots.js");
   const bomMod = await import("../functions/api/items/[id]/bom.js");
   const woMod = await import("../functions/api/work-orders.js");
+  const issueMod = await import("../functions/api/work-orders/[id]/issue-material.js");
   const { confirmPick, shipDispatch, confirmReceive } = await import("../functions/api/_dispatch.js");
   const returnMaterialMod = await import("../functions/api/return-material.js");
 
@@ -31,10 +32,12 @@ async function run() {
 
   const wo1 = await (await woMod.onRequestPost({ request: req({ description: "Job 1", worker_site_id: worker.id, intended_item_id: finishedItem.id, target_quantity: 1 }), env, data: {} })).json();
   const wo2 = await (await woMod.onRequestPost({ request: req({ description: "Job 2", worker_site_id: worker.id, intended_item_id: finishedItem.id, target_quantity: 1 }), env, data: {} })).json();
+  await issueMod.onRequestPost({ request: req({ lot_id: workerLot.id, quantity: 5 }), env, params: { id: wo1.id } });
+  await issueMod.onRequestPost({ request: req({ lot_id: workerLot.id, quantity: 5 }), env, params: { id: wo2.id } });
 
   const issue1 = await env.DB.prepare("SELECT * FROM material_issues WHERE work_order_id = ?").bind(wo1.id).first();
   const issue2 = await env.DB.prepare("SELECT * FROM material_issues WHERE work_order_id = ?").bind(wo2.id).first();
-  assert(issue1 && issue2 && issue1.lot_id === workerLot.id && issue2.lot_id === workerLot.id, "both jobs drew from the SAME pre-existing worker lot via BOM auto-resolution, no fresh dispatch needed");
+  assert(issue1 && issue2 && issue1.lot_id === workerLot.id && issue2.lot_id === workerLot.id, "both jobs were explicitly issued from the SAME pre-existing worker lot, no dispatch needed since it's already there");
 
   const lotAfterBoth = await env.DB.prepare("SELECT * FROM item_lots WHERE id = ?").bind(workerLot.id).first();
   assert(lotAfterBoth.quantity_balance === 18, `balance correctly stays at 18 — both are RESERVED via material_issues, not yet consumed (that now happens at Mark Job Done), got ${lotAfterBoth.quantity_balance}`);
@@ -53,10 +56,6 @@ async function run() {
 
   const issue1Check = await env.DB.prepare("SELECT * FROM material_issues WHERE id = ?").bind(issue1.id).first();
   const issue2Check = await env.DB.prepare("SELECT * FROM material_issues WHERE id = ?").bind(issue2.id).first();
-  // Both issues (5 each) were still genuinely OPEN — "already at worker" only
-  // skips the shipping step, not reconciliation. With no job link to say
-  // otherwise, FIFO correctly closes the older one (job 1) fully, then
-  // applies the remaining 3 of 8 to the newer one (job 2).
   assert(issue1Check.quantity_returned_stock === 5 && issue1Check.status === "received",
     `the OLDER issue (job 1, issued 5) is correctly closed first by FIFO, got returned=${issue1Check.quantity_returned_stock}`);
   assert(issue2Check.quantity_returned_stock === 3 && issue2Check.status === "partially_returned",
@@ -66,12 +65,6 @@ async function run() {
   assert(storeStockAfter.t === 8, `the store correctly received the physical 8 back regardless, got ${storeStockAfter.t}`);
 
   section("=== FIFO-by-age holds even across a third job — the oldest still-open issue always wins ===");
-  // After the return above, the raw balance is 18-8=10, with issue2 still
-  // holding 2 outstanding (reserved, not yet consumed). Genuinely-free
-  // stock is 10-2=8 — drain that away deliberately first, so job 3's own
-  // BOM auto-fulfillment genuinely has nothing left and has to fall
-  // through to a real store dispatch, exercising that path on purpose
-  // rather than relying on incidental exhaustion.
   const drainRes = await (await returnMaterialMod.onRequestPost({ request: req({ from_site_id: worker.id, lot_id: workerLot.id, quantity: 8 }), env })).json();
   assert(drainRes.dispatch_id, "draining the remaining genuinely-free stock succeeds");
   await confirmPick(env, drainRes.dispatch_id, { item_id: rawItem.id, lot_id: workerLot.id, scanned_quantity: 8 });
@@ -80,24 +73,25 @@ async function run() {
   await confirmReceive(env, drainRes.dispatch_id, [{ dispatch_item_id: drainDispItem.id, received_quantity: 8 }], "Store staff");
 
   const wo3 = await (await woMod.onRequestPost({ request: req({ description: "Job 3", worker_site_id: worker.id, intended_item_id: finishedItem.id, target_quantity: 1 }), env, data: {} })).json();
-  const autoBomLine = wo3.bom_results.find((r) => r.resolution === "dispatch_created");
-  assert(autoBomLine, "with the worker's site now genuinely drained, BOM auto-fulfillment correctly falls through to creating its own store dispatch for this job");
+  assert(wo3.material_suggestions[0].quantity === 5, "job 3's suggestion still correctly reflects the BOM (5), even with the worker's site now drained");
 
-  await confirmPick(env, autoBomLine.dispatch_id, { item_id: rawItem.id, lot_id: null, scanned_quantity: autoBomLine.quantity });
-  await shipDispatch(env, autoBomLine.dispatch_id, {}, "store staff");
-  const autoDispItem = await env.DB.prepare("SELECT * FROM dispatch_items WHERE dispatch_id = ?").bind(autoBomLine.dispatch_id).first();
-  await confirmReceive(env, autoBomLine.dispatch_id, [{ dispatch_item_id: autoDispItem.id, received_quantity: autoBomLine.quantity }], "Zakir");
+  // The worker's site is now genuinely drained, so explicitly issuing from
+  // the store's own lot exercises the dispatch-based path of issue-material.
+  const storeLotForWo3 = await env.DB.prepare("SELECT id FROM item_lots WHERE item_id = ? AND site_id = ? AND quantity_balance > 0").bind(rawItem.id, store.id).first();
+  const issue3Res = await (await issueMod.onRequestPost({ request: req({ lot_id: storeLotForWo3.id, quantity: 5 }), env, params: { id: wo3.id } })).json();
+  assert(issue3Res.dispatch_id && !issue3Res.direct_issue, "with the worker's site genuinely drained, explicitly issuing from the store's own lot correctly creates a real dispatch");
+
+  await confirmPick(env, issue3Res.dispatch_id, { item_id: rawItem.id, lot_id: storeLotForWo3.id, scanned_quantity: 5 });
+  await shipDispatch(env, issue3Res.dispatch_id, {}, "store staff");
+  const autoDispItem = await env.DB.prepare("SELECT * FROM dispatch_items WHERE dispatch_id = ?").bind(issue3Res.dispatch_id).first();
+  await confirmReceive(env, issue3Res.dispatch_id, [{ dispatch_item_id: autoDispItem.id, received_quantity: 5 }], "Zakir");
 
   const issue3 = await env.DB.prepare("SELECT * FROM material_issues WHERE work_order_id = ?").bind(wo3.id).first();
-  // issue3.lot_id points at the ORIGINAL source lot (the store's own lot,
-  // by design — that's what makes "scan to find open issues" work). The
-  // worker's actual physical lot is a different, freshly-minted one at
-  // their own site, found by item+site instead.
   const workerLot3 = await env.DB.prepare("SELECT * FROM item_lots WHERE item_id = ? AND site_id = ? AND quantity_balance > 0 ORDER BY id DESC LIMIT 1").bind(rawItem.id, worker.id).first();
   assert(workerLot3.site_id === worker.id, "job 3's own dedicated worker-side lot was created fresh, separate from the earlier shared lot");
 
   const issue2AfterDrain = await env.DB.prepare("SELECT * FROM material_issues WHERE id = ?").bind(issue2.id).first();
-  assert(issue2AfterDrain.status === "received", "issue2 is already fully closed by the drain step itself (it absorbed the last 2 of its own outstanding 5 during that generic reconciliation) — nothing left open on it by the time job 3 exists");
+  assert(issue2AfterDrain.status === "received", "issue2 is already fully closed by the drain step itself — nothing left open on it by the time job 3 exists");
 
   const partialReturn = await (await returnMaterialMod.onRequestPost({ request: req({ from_site_id: worker.id, lot_id: workerLot3.id, quantity: 2 }), env })).json();
   await confirmPick(env, partialReturn.dispatch_id, { item_id: rawItem.id, lot_id: workerLot3.id, scanned_quantity: 2 });
@@ -106,10 +100,6 @@ async function run() {
   await confirmReceive(env, partialReturn.dispatch_id, [{ dispatch_item_id: partialDispItem.id, received_quantity: 2 }], "Store staff");
 
   const issue3After = await env.DB.prepare("SELECT * FROM material_issues WHERE id = ?").bind(issue3.id).first();
-  // With issue2 already closed, issue3 is the ONLY genuinely open issue
-  // left for this item+site — so this return correctly applies entirely
-  // to it, closing it fully (5 issued, 2 wanted this round covers the gap
-  // left from job 3's own store-fulfilled quantity).
   assert(issue3After.quantity_returned_stock === 2,
     `with issue2 already closed, this return correctly applies entirely to issue3 — the only open issue left, got returned=${issue3After.quantity_returned_stock}`);
 

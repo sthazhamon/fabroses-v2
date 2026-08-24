@@ -32,7 +32,7 @@ async function run() {
 
   const wo = await (await woMod.onRequestPost({ request: req({ description: "Fix the applique", worker_site_id: worker.id, intended_item_id: saree.id, job_type: "rework", rework_lot_id: flawedLot.id, target_quantity: 1 }), env, data: {} })).json();
   assert(wo.id, "rework WO with the specific lot succeeds");
-  assert(wo.bom_results.length === 0, "rework jobs don't trigger BOM auto-fulfillment — there's no raw material need here, just the piece itself");
+  assert(wo.material_suggestions.length === 0, "rework jobs don't get any material suggestion — there's no raw material need here, just the piece itself");
 
   section("=== Sending the specific lot out — no re-entry needed, the WO already knows it ===");
   const issueRes = await (await issueReworkMod.onRequestPost({ request: req({}), env, params: { id: wo.id } })).json();

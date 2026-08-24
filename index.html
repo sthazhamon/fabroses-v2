@@ -579,7 +579,17 @@ const BOTTOM_NAV_PRIORITY = {
   reseller: [],
 };
 function getSession(){ const token=localStorage.getItem("fr_token"); const role=localStorage.getItem("fr_role"); const name=localStorage.getItem("fr_name"); const siteId=localStorage.getItem("fr_site"); return token?{token,role,name,siteId}:null; }
-async function apiFetch(path, opts){ opts=opts||{}; const s=getSession(); const headers=Object.assign({}, opts.headers||{}); if(s) headers["Authorization"]="Bearer "+s.token; const res=await fetch(API+path, Object.assign({cache:"no-store"},opts,{headers:headers})); if(res.status===401){logout(); throw new Error("Session expired");} const json=await res.json(); if(!res.ok) throw new Error(json.error||"Request failed"); return json; }
+async function apiFetch(path, opts){
+  opts=opts||{}; const s=getSession(); const headers=Object.assign({}, opts.headers||{}); if(s) headers["Authorization"]="Bearer "+s.token;
+  const res=await fetch(API+path, Object.assign({cache:"no-store"},opts,{headers:headers}));
+  if(res.status===401){logout(); throw new Error("Session expired");}
+  const rawText = await res.text();
+  let json;
+  try{ json = rawText ? JSON.parse(rawText) : {}; }
+  catch(e){ throw new Error("Server returned an unexpected (non-JSON) response — status "+res.status+". This usually means a deployment or function error, not something you did. Raw response starts with: "+rawText.slice(0,120)); }
+  if(!res.ok) throw new Error(json.error||"Request failed — status "+res.status);
+  return json;
+}
 function showError(msg){ const el=document.getElementById("error-banner"); el.textContent=msg; el.style.display="block"; setTimeout(function(){el.style.display="none";},6000); }
 
 async function doLogin(){
@@ -695,11 +705,31 @@ function loadTabData(tabId){
 }
 
 // ---------------- Shared dropdown helpers ----------------
+function attachSearchFilter(selectId, allOptions, renderOptionFn, blankLabel){
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  let filterInput = document.getElementById(selectId+"-filter");
+  if(!filterInput){
+    filterInput = document.createElement("input");
+    filterInput.id = selectId+"-filter";
+    filterInput.placeholder = "Type to search...";
+    filterInput.style.marginBottom = "4px";
+    sel.parentNode.insertBefore(filterInput, sel);
+  }
+  function rebuild(query){
+    const q = (query||"").trim().toLowerCase();
+    const currentValue = sel.value;
+    const matches = q ? allOptions.filter(function(o){return (o.name||"").toLowerCase().includes(q) || (o.item_code||"").toLowerCase().includes(q);}) : allOptions;
+    sel.innerHTML = '<option value="">'+(blankLabel||"-- none --")+'</option>' + matches.map(renderOptionFn).join("");
+    if(matches.some(function(o){return String(o.id)===String(currentValue);})) sel.value = currentValue;
+  }
+  filterInput.oninput = function(){ rebuild(filterInput.value); };
+  rebuild("");
+}
 async function populateItemDropdown(selectId, typeFilter){
   const q = typeFilter ? "?item_type="+typeFilter : "";
   const list = await apiFetch("/items"+q);
-  const sel = document.getElementById(selectId);
-  sel.innerHTML = '<option value="">-- none --</option>' + list.map(function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+' - stock:'+i.total_stock+'</option>';}).join("");
+  attachSearchFilter(selectId, list, function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+' - stock:'+i.total_stock+'</option>';});
 }
 async function populateSiteDropdown(selectId, typeFilter){
   const list = await apiFetch("/sites");
@@ -881,10 +911,16 @@ function viewFullPhoto(r2Key){
   overlay.onclick = function(){ document.body.removeChild(overlay); };
   document.body.appendChild(overlay);
 }
+function escapeHtml(str){
+  return (str||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+function printAddressLabelFromButton(btn){
+  printAddressLabel(btn.dataset.shipName, btn.dataset.shipAddress);
+}
 function printAddressLabel(name, address){
   const printWindow = window.open("", "_blank");
   const html = "<html><body onload='window.print()' style='font-family:sans-serif;padding:20px;'>"+
-    "<h2>"+(name||"")+"</h2><p style='font-size:1.1rem;white-space:pre-line;'>"+(address||"No address on file")+"</p></body></html>";
+    "<h2>"+escapeHtml(name)+"</h2><p style='font-size:1.1rem;white-space:pre-line;'>"+escapeHtml(address||"No address on file")+"</p></body></html>";
   if(printWindow){ printWindow.document.write(html); printWindow.document.close(); }
   else alert("Please allow popups for this site to print the address, then try again.");
 }
@@ -1210,14 +1246,15 @@ let poLineCount = 0;
 async function addPOLine(){
   poLineCount++;
   const lineId = "poline-"+poLineCount;
+  const itemSelectId = "po-item-"+poLineCount;
   const itemOptions = await apiFetch("/items");
-  const optionsHtml = '<option value="">-- item --</option>'+itemOptions.map(function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+' ['+i.item_type+']</option>';}).join("");
   const row = document.createElement("div");
   row.className = "card"; row.id = lineId;
-  row.innerHTML = '<label>Item</label><select class="po-line-item">'+optionsHtml+'</select>'+
+  row.innerHTML = '<label>Item</label><select id="'+itemSelectId+'" class="po-line-item"></select>'+
     '<div class="row"><div><label>Quantity ordered</label><input class="po-line-qty" type="number" step="0.1"></div><div><label>Rate (Rs)</label><input class="po-line-rate" type="number" step="0.01"></div></div>'+
     '<button type="button" class="secondary btn-sm" onclick="document.getElementById(\''+lineId+'\').remove()">Remove line</button>';
   document.getElementById("po-lines").appendChild(row);
+  attachSearchFilter(itemSelectId, itemOptions, function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+' ['+i.item_type+']</option>';});
 }
 async function createPO(){
   try{
@@ -1411,12 +1448,11 @@ async function createWO(){
       due_date:document.getElementById("wo-due").value||null, related_customer_order_id: prefillCustomerOrderId, related_customer_order_item_id: prefillCustomerOrderItemId,
       material_lines: material_lines })});
 
-    const bomSummary = (res.bom_results||[]).map(function(r){
-      if(r.resolution==="already_at_worker") return r.raw_material_item_id+": already had enough";
-      if(r.resolution==="dispatch_created") return r.raw_material_item_id+": dispatch created ("+r.dispatch_id+")";
-      return r.raw_material_item_id+": not enough anywhere — will show in Dispatch queue";
+    const suggestionSummary = (res.material_suggestions||[]).map(function(r){
+      return r.raw_material_item_id+": "+r.quantity+" needed";
     }).join("; ");
-    document.getElementById("wo-result").innerHTML='<p style="color:var(--ok);">Created '+res.id+'</p>'+(bomSummary?'<p class="muted">'+bomSummary+'</p>':'');
+    document.getElementById("wo-result").innerHTML='<p style="color:var(--ok);">Created '+res.id+'</p>'+
+      (suggestionSummary?'<p class="muted">Suggested material: '+suggestionSummary+'. Nothing is reserved yet — open the work order to review and issue it.</p>':'');
     prefillCustomerOrderId = null;
     prefillCustomerOrderItemId = null;
     document.getElementById("wo-desc").value="";
@@ -1474,10 +1510,11 @@ async function viewWO(id){
       (w.photos&&w.photos.length?'<p class="muted">'+w.photos.length+' work-in-progress photo(s):</p><div>'+w.photos.map(function(p){return '<img src="/api/photo/'+p.r2_key+'" onclick="viewFullPhoto(\''+p.r2_key+'\')" style="width:64px;height:64px;object-fit:cover;border-radius:6px;margin:3px;cursor:zoom-in;">';}).join("")+'</div>':'')+
       '</div>';
     if(canCancel && w.job_type==="production" && w.intended_item_id){
+      window.__currentWoTargetQty = w.target_quantity || 1;
       const bomLines = await apiFetch("/items/"+w.intended_item_id+"/bom");
       const sel = document.getElementById("wo-issue-item");
       if(sel){
-        sel.innerHTML = '<option value="">-- select --</option>'+bomLines.map(function(b){return '<option value="'+b.raw_material_item_id+'">'+b.raw_material_name+' (needs '+b.quantity_required+'/unit)</option>';}).join("");
+        sel.innerHTML = '<option value="">-- select --</option>'+bomLines.map(function(b){return '<option value="'+b.raw_material_item_id+'" data-per-unit="'+b.quantity_required+'">'+b.raw_material_name+' (needs '+b.quantity_required+'/unit — '+(b.quantity_required*(w.target_quantity||1))+' total for this job)</option>';}).join("");
         if(!bomLines.length) sel.innerHTML = '<option value="">No BOM set for this item — add one in Catalogue, or issue material won\'t know what to suggest</option>';
       }
     }
@@ -1485,7 +1522,10 @@ async function viewWO(id){
   }catch(e){showError(e.message);}
 }
 async function loadIssueLotOptions(woId){
-  const itemId = document.getElementById("wo-issue-item").value;
+  const itemSelect = document.getElementById("wo-issue-item");
+  const itemId = itemSelect.value;
+  const perUnitOpt = itemSelect.options[itemSelect.selectedIndex];
+  const perUnitQty = perUnitOpt ? parseFloat(perUnitOpt.dataset.perUnit)||0 : 0;
   const lotSelect = document.getElementById("wo-issue-lot-select");
   if(!itemId){ lotSelect.innerHTML = '<option value="">-- select a raw material first --</option>'; return; }
   try{
@@ -1497,7 +1537,8 @@ async function loadIssueLotOptions(woId){
       const opt = lotSelect.options[lotSelect.selectedIndex];
       const max = parseFloat(opt.dataset.max)||0;
       const qtyField = document.getElementById("wo-issue-qty");
-      if(!qtyField.value || parseFloat(qtyField.value) > max) qtyField.value = max;
+      const suggested = perUnitQty ? Math.min(perUnitQty * (window.__currentWoTargetQty||1), max) : max;
+      qtyField.value = suggested;
       qtyField.max = max;
     };
     if(lotSelect.onchange) lotSelect.onchange();
@@ -1643,7 +1684,18 @@ async function loadResellerPortal(){
         '<p style="margin:6px 0 0;font-size:0.75rem;color:#9a978c;">Rs '+m.current_value+' of Rs '+m.target_value+' · ends '+m.end_date+'</p></div>';
     }).join("");
 
-    const orderRows = (p.orders||[]).map(function(o){return '<div class="rp-list-row"><p style="margin:0;font-weight:600;color:#f0e6c8;">'+o.id+'</p><p style="margin:2px 0 0;font-size:0.8rem;color:#9a978c;">'+o.status+(o.tracking_id?' · Tracking: '+o.tracking_id:'')+'</p></div>';}).join("");
+    const orderRows = (p.orders||[]).map(function(o, idx){
+      const rowId = "rp-order-"+idx;
+      const detailLines = [];
+      if(o.order_type==="direct_sale") detailLines.push("Direct sale — no customer order was created for this one");
+      else detailLines.push("Placed: "+(o.order_date||o.created_at||"-").slice(0,10));
+      if(o.courier || o.tracking_id) detailLines.push("Courier: "+(o.courier||"-")+" | Tracking: "+(o.tracking_id||"-"));
+      if(o.dispatch_date) detailLines.push("Shipped: "+o.dispatch_date);
+      if(o.sale_total!=null) detailLines.push("Amount: Rs "+o.sale_total);
+      return '<div class="rp-list-row" style="cursor:pointer;" onclick="document.getElementById(\''+rowId+'\').style.display=document.getElementById(\''+rowId+'\').style.display===\'none\'?\'block\':\'none\'">'+
+        '<p style="margin:0;font-weight:600;color:#f0e6c8;">'+o.id+'</p><p style="margin:2px 0 0;font-size:0.8rem;color:#9a978c;">'+o.status+'</p>'+
+        '<div id="'+rowId+'" style="display:none;margin-top:6px;font-size:0.8rem;color:#c9ced4;">'+detailLines.join("<br>")+'</div></div>';
+    }).join("");
 
     const rewardCards = (p.reward_catalog||[]).map(function(r){
       const affordable = p.spendable_balance >= r.points_cost;
@@ -1920,7 +1972,8 @@ async function manageMyOutgoing(dispatchId){
     }).join("");
     const allPicked = d.items.every(function(it){return it.scanned_quantity!==null;});
     document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+d.id+'</div>'+
-      (d.shipping_address?'<p class="muted">Shipping to: '+(d.shipping_name||d.to_site_name||"")+'</p><button type="button" class="secondary btn-sm" onclick=\'printAddressLabel("'+(d.shipping_name||d.to_site_name||"").replace(/"/g,"&quot;")+'","'+(d.shipping_address||"").replace(/"/g,"&quot;")+'")\'>Print address</button>':'')+
+      (d.shipping_address?'<div class="row" style="align-items:flex-start;"><p class="muted" style="flex:1;white-space:pre-line;margin:0;"><b>Shipping to '+escapeHtml(d.shipping_name||d.to_site_name||"")+':</b><br>'+escapeHtml(d.shipping_address)+'</p>'+
+        '<button type="button" class="secondary btn-sm" data-ship-name="'+escapeHtml(d.shipping_name||d.to_site_name||"")+'" data-ship-address="'+escapeHtml(d.shipping_address)+'" onclick="printAddressLabelFromButton(this)">Print shipping label</button></div>':'')+
       '<table><tr><th>Item</th><th>Qty</th><th></th></tr>'+itemRows+'</table>'+
       (allPicked?'<label>Courier</label><input id="mywork-ship-courier"><label>Tracking</label><input id="mywork-ship-tracking">'+
         '<button class="secondary" onclick="shipMyOutgoing(\''+dispatchId+'\')">Ship it</button><div id="mywork-ship-msg"></div>':'')+
@@ -2074,7 +2127,8 @@ async function openDispatchAction(dispatchId){
     }).join("");
     const allPicked = d.items.every(function(it){return it.scanned_quantity!==null;});
     document.getElementById("dispatch-action-area").innerHTML = '<div class="card"><div class="code-big">'+d.id+'</div><p>'+d.dispatch_type+' | status: '+d.status+'</p>'+
-      (d.shipping_address?'<p class="muted">Shipping to: '+(d.shipping_name||d.to_site_name||"")+'</p><button type="button" class="secondary btn-sm" onclick=\'printAddressLabel("'+(d.shipping_name||d.to_site_name||"").replace(/"/g,"&quot;")+'","'+(d.shipping_address||"").replace(/"/g,"&quot;")+'")\'>Print address</button>':'')+
+      (d.shipping_address?'<div class="row" style="align-items:flex-start;"><p class="muted" style="flex:1;white-space:pre-line;margin:0;"><b>Shipping to '+escapeHtml(d.shipping_name||d.to_site_name||"")+':</b><br>'+escapeHtml(d.shipping_address)+'</p>'+
+        '<button type="button" class="secondary btn-sm" data-ship-name="'+escapeHtml(d.shipping_name||d.to_site_name||"")+'" data-ship-address="'+escapeHtml(d.shipping_address)+'" onclick="printAddressLabelFromButton(this)">Print shipping label</button></div>':'')+
       '<table><tr><th>Item</th><th>Qty</th><th></th></tr>'+itemRows+'</table>'+
       (allPicked && d.status!=="shipped" ? '<label>Courier</label><input id="ship-courier"><label>Tracking (optional)</label><input id="ship-tracking">'+
         '<button class="secondary" onclick="shipThisDispatch(\''+d.id+'\')">Pack & Send</button><div id="ship-msg"></div>' : '')+
@@ -2125,7 +2179,7 @@ async function loadDispatchHistory(){
     if(from&&to) list=list.filter(function(d){return d.shipped_at && d.shipped_at.slice(0,10)>=from && d.shipped_at.slice(0,10)<=to;});
     const filtered = list.filter(function(d){return d.status==="shipped"||d.status==="received";}).slice(0,50);
     document.getElementById("dispatch-history").innerHTML = renderCardList(filtered, {
-      icon: function(){return "✅";}, title: function(d){return d.id+' · '+d.dispatch_type;},
+      icon: function(d){return d.has_receive_mismatch?"⚠️":"✅";}, title: function(d){return d.id+' · '+d.dispatch_type+(d.has_receive_mismatch?' <span style="color:var(--warn);font-weight:700;">QUANTITY MISMATCH</span>':'');},
       sub: function(d){return (d.item_summary||"-")+' · '+(d.from_site_name||"-")+' → '+(d.to_site_name||"-")+' · '+(d.courier||"-")+' '+(d.tracking_id||"")+' · '+d.status+' · '+(d.shipped_at||d.created_at||"-").slice(0,10);},
       action: function(d){return '<button class="secondary btn-sm" onclick="editDispatchTracking(\''+d.id+'\')">Tracking</button>';},
       empty: "Nothing shipped yet in this range.",
@@ -2369,15 +2423,16 @@ let coLineCount = 0;
 async function addCOLine(){
   coLineCount++;
   const lineId = "coline-"+coLineCount;
+  const itemSelectId = "co-item-"+coLineCount;
   const itemOptions = await apiFetch("/items?item_type=finished_good");
-  const optionsHtml = '<option value="">-- item (or leave blank for custom) --</option>'+itemOptions.map(function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+'</option>';}).join("");
   const row = document.createElement("div");
   row.className = "card"; row.id = lineId;
-  row.innerHTML = '<label>Item</label><select class="co-line-item">'+optionsHtml+'</select>'+
+  row.innerHTML = '<label>Item</label><select id="'+itemSelectId+'" class="co-line-item"></select>'+
     '<label>Or describe custom request</label><textarea class="co-line-desc" rows="2"></textarea>'+
     '<div class="row"><div><label>Quantity</label><input class="co-line-qty" type="number" step="1" value="1"></div><div><label>Unit price (reference only, Rs)</label><input class="co-line-price" type="number" step="0.01"></div><div><label>Tax %</label><input class="co-line-tax" type="number" step="0.1" value="0"></div></div>'+
     '<button type="button" class="secondary btn-sm" onclick="document.getElementById(\''+lineId+'\').remove()">Remove line</button>';
   document.getElementById("co-lines").appendChild(row);
+  attachSearchFilter(itemSelectId, itemOptions, function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+'</option>';}, "-- item (or leave blank for custom) --");
 }
 async function createCO(){
   try{
@@ -2467,18 +2522,19 @@ let saleLineCount = 0;
 async function addSaleLine(prefill){
   saleLineCount++;
   const lineId = "saleline-"+saleLineCount;
+  const itemSelectId = "sale-item-"+saleLineCount;
   const itemOptions = await apiFetch("/items");
-  const optionsHtml = '<option value="">-- item (optional) --</option>'+itemOptions.map(function(i){return '<option value="'+i.id+'"'+(prefill&&prefill.item_id===i.id?" selected":"")+'>'+i.name+(i.item_code?" ("+i.item_code+")":"")+' - stock:'+i.total_stock+'</option>';}).join("");
   const row = document.createElement("div");
   row.className = "card"; row.id = lineId;
-  row.innerHTML = '<label>Item (optional)</label><select class="sale-line-item" onchange="loadSaleLineLots(\''+lineId+'\')">'+optionsHtml+'</select>'+
+  row.innerHTML = '<label>Item (optional)</label><select id="'+itemSelectId+'" class="sale-line-item" onchange="loadSaleLineLots(\''+lineId+'\')"></select>'+
     '<label>Lot (optional — leave blank to use FIFO automatically)</label><select class="sale-line-lot"><option value="">-- FIFO (oldest first) --</option></select>'+
     '<div class="row"><div><label>Quantity</label><input class="sale-line-qty" type="number" step="1" value="'+(prefill&&prefill.quantity?prefill.quantity:1)+'"></div><div><label>Sale price (Rs, pre-tax)</label><input class="sale-line-price" type="number" step="0.01" value="'+(prefill&&prefill.sale_price?prefill.sale_price:"")+'"></div></div>'+
     '<label>Tax %</label><input class="sale-line-tax" type="number" step="0.1" value="'+(prefill&&prefill.tax_rate?prefill.tax_rate:0)+'">'+
     '<label>Description</label><input class="sale-line-desc" value="'+(prefill&&prefill.description?prefill.description:"")+'">'+
     '<button type="button" class="secondary btn-sm" onclick="document.getElementById(\''+lineId+'\').remove()">Remove line</button>';
   document.getElementById("s-lines").appendChild(row);
-  if(prefill && prefill.item_id) await loadSaleLineLots(lineId);
+  attachSearchFilter(itemSelectId, itemOptions, function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+' - stock:'+i.total_stock+'</option>';});
+  if(prefill && prefill.item_id){ document.getElementById(itemSelectId).value = prefill.item_id; await loadSaleLineLots(lineId); }
 }
 async function loadSaleLineLots(lineId){
   const row = document.getElementById(lineId);
@@ -2502,7 +2558,7 @@ async function billCOViaSales(coId){
     document.getElementById("s-fulfills-co-id").textContent = coId;
     document.getElementById("s-lines").innerHTML = "";
     for(const line of order.items){
-      await addSaleLine({ item_id: line.item_id, quantity: line.quantity, description: line.item_name||line.description, tax_rate: line.tax_rate });
+      await addSaleLine({ item_id: line.item_id, quantity: line.quantity, description: line.item_name||line.description, tax_rate: line.tax_rate, sale_price: line.unit_price });
     }
     if(order.customer_party_id){
       const opt = document.querySelector('#s-customer-select option[value="'+order.customer_party_id+'"]');

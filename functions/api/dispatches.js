@@ -7,11 +7,24 @@ export async function onRequestGet({ env }) {
      ORDER BY d.created_at DESC`
   ).all();
 
-  for (const dispatch of results) {
-    const { results: items } = await env.DB.prepare(
-      "SELECT di.expected_quantity, di.scanned_quantity, i.name AS item_name FROM dispatch_items di LEFT JOIN items i ON i.id = di.item_id WHERE di.dispatch_id = ?"
-    ).bind(dispatch.id).all();
-    dispatch.item_summary = items.map((i) => `${i.item_name || "?"} (${i.scanned_quantity ?? i.expected_quantity})`).join(", ");
+  if (results.length) {
+    const dispatchIds = results.map((d) => d.id);
+    const placeholders = dispatchIds.map(() => "?").join(",");
+    const { results: allItems } = await env.DB.prepare(
+      `SELECT di.dispatch_id, di.expected_quantity, di.scanned_quantity, di.received_quantity, di.receive_mismatch_flag, i.name AS item_name
+       FROM dispatch_items di LEFT JOIN items i ON i.id = di.item_id WHERE di.dispatch_id IN (${placeholders})`
+    ).bind(...dispatchIds).all();
+
+    const itemsByDispatch = {};
+    for (const item of allItems) {
+      if (!itemsByDispatch[item.dispatch_id]) itemsByDispatch[item.dispatch_id] = [];
+      itemsByDispatch[item.dispatch_id].push(item);
+    }
+    for (const dispatch of results) {
+      const items = itemsByDispatch[dispatch.id] || [];
+      dispatch.item_summary = items.map((i) => `${i.item_name || "?"} (${i.scanned_quantity ?? i.expected_quantity})`).join(", ");
+      dispatch.has_receive_mismatch = items.some((i) => i.receive_mismatch_flag === 1);
+    }
   }
 
   return Response.json(results);

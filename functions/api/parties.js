@@ -19,8 +19,28 @@ async function openingEquityAccountId(env) {
 
 export async function onRequestGet({ env }) {
   const { results: parties } = await env.DB.prepare("SELECT * FROM parties ORDER BY name ASC").all();
-  const withBalances = [];
-  for (const party of parties) withBalances.push({ ...party, ...(await computeBalance(env, party)) });
+
+  const accountIds = parties.map((p) => p.account_id).filter(Boolean);
+  const sums = {};
+  const accountTypes = {};
+  if (accountIds.length) {
+    const placeholders = accountIds.map(() => "?").join(",");
+    const { results: sumRows } = await env.DB.prepare(
+      `SELECT account_id, COALESCE(SUM(debit),0) AS d, COALESCE(SUM(credit),0) AS c FROM journal_lines WHERE account_id IN (${placeholders}) GROUP BY account_id`
+    ).bind(...accountIds).all();
+    for (const row of sumRows) sums[row.account_id] = row;
+    const { results: accountRows } = await env.DB.prepare(`SELECT id, account_type FROM accounts WHERE id IN (${placeholders})`).bind(...accountIds).all();
+    for (const row of accountRows) accountTypes[row.id] = row.account_type;
+  }
+
+  const withBalances = parties.map((party) => {
+    if (!party.account_id) return { ...party, balance: party.opening_balance, billed: 0, settled: 0 };
+    const row = sums[party.account_id] || { d: 0, c: 0 };
+    const accountType = accountTypes[party.account_id];
+    const net = accountType === "asset" ? row.d - row.c : row.c - row.d;
+    return { ...party, balance: Math.round(net * 100) / 100, billed: row.d, settled: row.c };
+  });
+
   return Response.json(withBalances);
 }
 

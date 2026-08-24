@@ -193,7 +193,8 @@ CREATE TABLE dispatch_items (
   expected_quantity REAL,
   scanned_quantity REAL,
   received_quantity REAL,
-  mismatch_flag INTEGER DEFAULT 0
+  mismatch_flag INTEGER DEFAULT 0,
+  receive_mismatch_flag INTEGER DEFAULT 0
 );
 
 CREATE TABLE dispatch_tracking_notes (

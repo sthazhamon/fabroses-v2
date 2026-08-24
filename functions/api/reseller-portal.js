@@ -20,10 +20,30 @@ export async function onRequestGet({ env, data }) {
     ledgerEntries = results;
   }
 
-  const { results: orders } = await env.DB.prepare(
+  const { results: coOrders } = await env.DB.prepare(
     "SELECT co.*, s.id AS sale_id, s.total_amount AS sale_total FROM customer_orders co LEFT JOIN sales s ON s.id = co.sale_id " +
     "WHERE co.customer_party_id = ? ORDER BY co.created_at DESC"
   ).bind(resellerPartyId).all();
+
+  // Direct sales that never had a customer order created for them at all -
+  // these were previously invisible in "My orders" despite showing up in
+  // the ledger, since the old query only ever looked at customer_orders.
+  const { results: directSales } = await env.DB.prepare(
+    `SELECT s.id AS sale_id, s.total_amount AS sale_total, s.sale_date, s.created_at
+     FROM sales s
+     WHERE s.customer_party_id = ? AND NOT EXISTS (SELECT 1 FROM customer_orders co WHERE co.sale_id = s.id)
+     ORDER BY s.created_at DESC`
+  ).bind(resellerPartyId).all();
+
+  const orders = [
+    ...coOrders.map((co) => ({ ...co, order_type: "customer_order" })),
+    ...directSales.map((s) => ({
+      id: s.sale_id, order_type: "direct_sale", status: "billed",
+      order_date: s.sale_date, created_at: s.created_at,
+      sale_id: s.sale_id, sale_total: s.sale_total,
+      courier: null, tracking_id: null, dispatch_date: null,
+    })),
+  ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   const { points_this_year, window_days, level, manually_overridden } = await getCurrentLevel(env, resellerPartyId);
   const spendableBalance = await getSpendableBalance(env, resellerPartyId);

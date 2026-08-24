@@ -202,7 +202,7 @@ async function run() {
       target_quantity: 1, priority: "normal", due_date: null, related_customer_order_id: null,
       material_lines: previewRes.lines.map((l) => ({ raw_material_item_id: l.raw_material_item_id, quantity: l.suggested_quantity })),
     }));
-    assert(woWithBom.id && Array.isArray(woWithBom.bom_results), "createWO()'s exact shape (including material_lines override) accepted, bom_results returned for the summary message");
+    assert(woWithBom.id && Array.isArray(woWithBom.material_suggestions), "createWO()'s exact shape (including material_lines override) accepted, material_suggestions returned for the summary message");
 
     section("=== Rework: issue, then return, using the exact frontend shapes ===");
     const reworkLot = await apiFetch("/item-lots", postJSON({ item_id: finishedItem.id, site_id: store.id, quantity: 1, source_type: "work_order_output" }));
@@ -273,6 +273,8 @@ async function run() {
     await apiFetch("/item-lots", postJSON({ item_id: bomFabricForDone.id, site_id: workerRes.id, quantity: 10, source_type: "opening_stock" }));
 
     const doneWO = await apiFetch("/work-orders", postJSON({ description: "Mark done flow", worker_site_id: workerRes.id, intended_item_id: finishedItem.id, target_quantity: 1, priority: "normal", due_date: null }));
+    const doneFabricLot = (await apiFetch("/stock-by-site")).sites.find((s) => s.site.id === workerRes.id).lots.find((l) => l.item_id === bomFabricForDone.id);
+    await apiFetch("/work-orders/" + doneWO.id + "/issue-material", postJSON({ lot_id: doneFabricLot.id, quantity: doneWO.material_suggestions[0].quantity }));
     const doneIssue = await apiFetch("/work-orders/" + doneWO.id).then((w) => w.issues[0]);
     await apiFetch("/material-issues/" + doneIssue.id + "/verify", postJSON({ item_id: bomFabricForDone.id, lot_id: doneIssue.lot_id }));
     await apiFetch("/work-orders/" + doneWO.id + "/stage", postJSON({ stage: "Work Started" }));

@@ -4,24 +4,59 @@ export async function onRequestGet({ request, env }) {
   const to = url.searchParams.get("to");
 
   const { results: parties } = await env.DB.prepare("SELECT * FROM parties WHERE type IN ('customer', 'reseller')").all();
+  if (!parties.length) return Response.json([]);
+
+  // Fetch every relevant sale, for every party, in one query - rather than
+  // one query per party.
+  const partyIds = parties.map((p) => p.id);
+  const placeholders = partyIds.map(() => "?").join(",");
+  let saleQuery = `SELECT * FROM sales WHERE customer_party_id IN (${placeholders})`;
+  const saleParams = [...partyIds];
+  if (from && to) { saleQuery += " AND date(sale_date) BETWEEN date(?) AND date(?)"; saleParams.push(from, to); }
+  const { results: allSales } = await env.DB.prepare(saleQuery).bind(...saleParams).all();
+
+  const salesByParty = {};
+  for (const sale of allSales) {
+    if (!salesByParty[sale.customer_party_id]) salesByParty[sale.customer_party_id] = [];
+    salesByParty[sale.customer_party_id].push(sale);
+  }
+
+  // Fetch every line for every one of those sales in one query.
+  const lineItemsBySale = {};
+  const lotIdsNeeded = new Set();
+  if (allSales.length) {
+    const saleIds = allSales.map((s) => s.id);
+    const salePlaceholders = saleIds.map(() => "?").join(",");
+    const { results: allLines } = await env.DB.prepare(`SELECT * FROM sale_items WHERE sale_id IN (${salePlaceholders})`).bind(...saleIds).all();
+    for (const line of allLines) {
+      if (!lineItemsBySale[line.sale_id]) lineItemsBySale[line.sale_id] = [];
+      lineItemsBySale[line.sale_id].push(line);
+      if (line.lot_id) lotIdsNeeded.add(line.lot_id);
+    }
+  }
+
+  // Fetch every lot referenced by any of those lines in one query.
+  const lotCosts = {};
+  if (lotIdsNeeded.size) {
+    const lotIds = [...lotIdsNeeded];
+    const lotPlaceholders = lotIds.map(() => "?").join(",");
+    const { results: lots } = await env.DB.prepare(`SELECT id, cost_total, quantity_original FROM item_lots WHERE id IN (${lotPlaceholders})`).bind(...lotIds).all();
+    for (const lot of lots) lotCosts[lot.id] = lot;
+  }
 
   const crm = [];
   for (const party of parties) {
-    let saleQuery = "SELECT * FROM sales WHERE customer_party_id = ?";
-    const params = [party.id];
-    if (from && to) { saleQuery += " AND date(sale_date) BETWEEN date(?) AND date(?)"; params.push(from, to); }
-    const { results: sales } = await env.DB.prepare(saleQuery).bind(...params).all();
-
+    const sales = salesByParty[party.id] || [];
     if (!sales.length) continue;
 
     let totalOrderValue = 0;
     let totalCogs = 0;
     for (const sale of sales) {
       totalOrderValue += sale.total_amount;
-      const { results: lines } = await env.DB.prepare("SELECT * FROM sale_items WHERE sale_id = ?").bind(sale.id).all();
+      const lines = lineItemsBySale[sale.id] || [];
       for (const line of lines) {
         if (!line.lot_id) continue;
-        const lot = await env.DB.prepare("SELECT cost_total, quantity_original FROM item_lots WHERE id = ?").bind(line.lot_id).first();
+        const lot = lotCosts[line.lot_id];
         if (lot && lot.cost_total && lot.quantity_original) {
           const costPerUnit = lot.cost_total / lot.quantity_original;
           totalCogs += costPerUnit * line.quantity;

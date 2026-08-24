@@ -18,6 +18,7 @@ async function run() {
   const lotsMod = await import("../functions/api/item-lots.js");
   const bomMod = await import("../functions/api/items/[id]/bom.js");
   const woMod = await import("../functions/api/work-orders.js");
+  const issueMod = await import("../functions/api/work-orders/[id]/issue-material.js");
   const verifyMod = await import("../functions/api/material-issues/[id]/verify.js");
   const stageMod = await import("../functions/api/work-orders/[id]/stage.js");
   const markDoneMod = await import("../functions/api/work-orders/[id]/mark-done.js");
@@ -32,6 +33,10 @@ async function run() {
   await lotsMod.onRequestPost({ request: req({ item_id: thread.id, site_id: worker.id, quantity: 3, source_type: "opening_stock" }), env, data: {} });
 
   const wo = await (await woMod.onRequestPost({ request: req({ description: "Job 1", worker_site_id: worker.id, intended_item_id: saree.id, target_quantity: 1 }), env, data: {} })).json();
+  const fabricLot = await env.DB.prepare("SELECT id FROM item_lots WHERE item_id = ? AND site_id = ?").bind(fabric.id, worker.id).first();
+  const threadLot = await env.DB.prepare("SELECT id FROM item_lots WHERE item_id = ? AND site_id = ?").bind(thread.id, worker.id).first();
+  await issueMod.onRequestPost({ request: req({ lot_id: fabricLot.id, quantity: 5 }), env, params: { id: wo.id } });
+  await issueMod.onRequestPost({ request: req({ lot_id: threadLot.id, quantity: 2 }), env, params: { id: wo.id } });
 
   section("=== Can't mark done before Work Started ===");
   const tooEarly = await (await markDoneMod.onRequestPost({ request: req({}), env, params: { id: wo.id }, data: {} })).json();
@@ -69,6 +74,10 @@ async function run() {
   await lotsMod.onRequestPost({ request: req({ item_id: fabric.id, site_id: worker2.id, quantity: 2, source_type: "opening_stock" }), env, data: {} }); // only 2, needs 5
   await lotsMod.onRequestPost({ request: req({ item_id: thread.id, site_id: worker2.id, quantity: 5, source_type: "opening_stock" }), env, data: {} });
   const wo2 = await (await woMod.onRequestPost({ request: req({ description: "Job 2", worker_site_id: worker2.id, intended_item_id: saree.id, target_quantity: 1 }), env, data: {} })).json();
+  const fabricLot2 = await env.DB.prepare("SELECT id FROM item_lots WHERE item_id = ? AND site_id = ?").bind(fabric.id, worker2.id).first();
+  const threadLot2 = await env.DB.prepare("SELECT id FROM item_lots WHERE item_id = ? AND site_id = ?").bind(thread.id, worker2.id).first();
+  await issueMod.onRequestPost({ request: req({ lot_id: fabricLot2.id, quantity: 2 }), env, params: { id: wo2.id } });
+  await issueMod.onRequestPost({ request: req({ lot_id: threadLot2.id, quantity: 5 }), env, params: { id: wo2.id } });
   const issues2 = await env.DB.prepare("SELECT * FROM material_issues WHERE work_order_id = ?").bind(wo2.id).all();
   for (const issue of issues2.results) {
     await verifyMod.onRequestPost({ request: req({ item_id: (await env.DB.prepare("SELECT item_id FROM item_lots WHERE id=?").bind(issue.lot_id).first()).item_id, lot_id: issue.lot_id }), env, params: { id: issue.id } });

@@ -98,7 +98,9 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
   for (const conf of itemConfirmations) {
     const item = await env.DB.prepare("SELECT * FROM dispatch_items WHERE id = ?").bind(conf.dispatch_item_id).first();
     if (!item) continue;
-    await env.DB.prepare("UPDATE dispatch_items SET received_quantity = ? WHERE id = ?").bind(conf.received_quantity, item.id).run();
+    const actuallySent = item.scanned_quantity != null ? item.scanned_quantity : item.expected_quantity;
+    const receiveMismatch = actuallySent != null && conf.received_quantity !== actuallySent;
+    await env.DB.prepare("UPDATE dispatch_items SET received_quantity = ?, receive_mismatch_flag = ? WHERE id = ?").bind(conf.received_quantity, receiveMismatch ? 1 : 0, item.id).run();
     if (!dispatch.to_site_id || conf.received_quantity <= 0) continue;
 
     // Finished good coming back from a worker — this is the moment stock

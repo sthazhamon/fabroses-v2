@@ -18,6 +18,7 @@ async function run() {
   const lotsMod = await import("../functions/api/item-lots.js");
   const bomMod = await import("../functions/api/items/[id]/bom.js");
   const woMod = await import("../functions/api/work-orders.js");
+  const issueMod = await import("../functions/api/work-orders/[id]/issue-material.js");
   const stageMod = await import("../functions/api/work-orders/[id]/stage.js");
   const verifyMod = await import("../functions/api/material-issues/[id]/verify.js");
   const { confirmPick, shipDispatch, confirmReceive } = await import("../functions/api/_dispatch.js");
@@ -32,8 +33,12 @@ async function run() {
   await lotsMod.onRequestPost({ request: req({ item_id: thread.id, site_id: store.id, quantity: 10, source_type: "direct_intake" }), env, data: {} });
 
   const wo = await (await woMod.onRequestPost({ request: req({ description: "Job 1", worker_site_id: worker.id, intended_item_id: saree.id, target_quantity: 1 }), env, data: {} })).json();
+  const fabricLot = await env.DB.prepare("SELECT id FROM item_lots WHERE item_id = ? AND site_id = ?").bind(fabric.id, store.id).first();
+  const threadLot = await env.DB.prepare("SELECT id FROM item_lots WHERE item_id = ? AND site_id = ?").bind(thread.id, store.id).first();
+  await issueMod.onRequestPost({ request: req({ lot_id: fabricLot.id, quantity: 5 }), env, params: { id: wo.id } });
+  await issueMod.onRequestPost({ request: req({ lot_id: threadLot.id, quantity: 2 }), env, params: { id: wo.id } });
 
-  // Ship and confirm both dispatches created by the BOM auto-fulfillment
+  // Ship and confirm both dispatches created by the explicit material issues
   const dispatches = await env.DB.prepare("SELECT * FROM dispatches WHERE related_work_order_id = ?").bind(wo.id).all();
   for (const d of dispatches.results) {
     const item = await env.DB.prepare("SELECT * FROM dispatch_items WHERE dispatch_id = ?").bind(d.id).first();

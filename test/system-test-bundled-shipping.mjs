@@ -33,8 +33,13 @@ async function run() {
   await bomMod.onRequestPost({ request: req({ lines: [{ raw_material_item_id: fabric.id, quantity_required: 3 }] }), env, params: { id: shawl.id } });
   await lotsMod.onRequestPost({ request: req({ item_id: fabric.id, site_id: worker.id, quantity: 20, source_type: "opening_stock" }), env, data: {} });
 
+  const issueMod = await import("../functions/api/work-orders/[id]/issue-material.js");
+
   async function completeJob(intendedItemId) {
     const wo = await (await woMod.onRequestPost({ request: req({ description: "Job", worker_site_id: worker.id, intended_item_id: intendedItemId, target_quantity: 1 }), env, data: {} })).json();
+    const neededQty = wo.material_suggestions[0].quantity;
+    const fabricLot = await env.DB.prepare("SELECT id FROM item_lots WHERE item_id = ? AND site_id = ? ORDER BY quantity_balance DESC LIMIT 1").bind(fabric.id, worker.id).first();
+    await issueMod.onRequestPost({ request: req({ lot_id: fabricLot.id, quantity: neededQty }), env, params: { id: wo.id } });
     const issues = await env.DB.prepare("SELECT * FROM material_issues WHERE work_order_id = ?").bind(wo.id).all();
     for (const issue of issues.results) {
       const itemId = (await env.DB.prepare("SELECT item_id FROM item_lots WHERE id=?").bind(issue.lot_id).first()).item_id;
