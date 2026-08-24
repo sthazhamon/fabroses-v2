@@ -37,10 +37,10 @@ export async function onRequestPost({ request, env }) {
   const id = await nextId(env, "parties", "PTY");
   try {
     await env.DB.prepare(
-      `INSERT INTO parties (id, name, type, phone, notes, opening_balance, discount_tier, target_amount, target_period, bonus_rule)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO parties (id, name, type, phone, address, notes, opening_balance, discount_tier, target_amount, target_period, bonus_rule)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
-      id, name, type, body.phone || null, body.notes || null, body.opening_balance || 0,
+      id, name, type, body.phone || null, body.address || null, body.notes || null, body.opening_balance || 0,
       body.discount_tier || null, body.target_amount || null, body.target_period || null, body.bonus_rule || null
     ).run();
   } catch (e) {

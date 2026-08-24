@@ -13,6 +13,7 @@ export async function onRequestPatch({ request, env, params }) {
   }
   if (body.type !== undefined) { updates.push("type = ?"); values.push(body.type); }
   if (body.phone !== undefined) { updates.push("phone = ?"); values.push(body.phone || null); }
+  if (body.address !== undefined) { updates.push("address = ?"); values.push(body.address || null); }
   if (body.notes !== undefined) { updates.push("notes = ?"); values.push(body.notes || null); }
   if (body.manual_level_override !== undefined) { updates.push("manual_level_override = ?"); values.push(body.manual_level_override || null); }
 

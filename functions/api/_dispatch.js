@@ -72,6 +72,23 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
   if (dispatch.status !== "shipped") return { error: "This dispatch hasn't been shipped yet — nothing to receive" };
   if (dispatch.dispatch_type === "customer_shipment") return { error: "Customer shipments finish at the ship step — there's no separate receipt to confirm here." };
 
+  // Validate every scanned item BEFORE touching anything, so a mismatch on
+  // one line never leaves others partially processed. Only checked when a
+  // scanned_item_id is actually provided, so this stays backward-compatible
+  // with any caller that doesn't scan (e.g. the store confirming a
+  // dispatch it already trusts).
+  for (const conf of itemConfirmations) {
+    if (!conf.scanned_item_id) continue;
+    const item = await env.DB.prepare("SELECT * FROM dispatch_items WHERE id = ?").bind(conf.dispatch_item_id).first();
+    if (!item) continue;
+    if (item.item_id !== conf.scanned_item_id) {
+      return { error: "Scanned item doesn't match what's expected on this dispatch", mismatch: true };
+    }
+    if (conf.scanned_lot_id && item.lot_id && item.lot_id !== conf.scanned_lot_id) {
+      return { error: "Scanned lot doesn't match what's expected on this dispatch", mismatch: true };
+    }
+  }
+
   const laborCost = (extra && extra.labor_cost) || 0;
   let workOrderClosed = false;
   let finishedLotId = null;

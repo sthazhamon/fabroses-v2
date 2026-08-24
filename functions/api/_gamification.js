@@ -54,6 +54,17 @@ export async function setRollingWindowDays(env, days) {
   await env.DB.prepare("INSERT INTO system_settings (key, value) VALUES ('reseller_level_window_days', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(days)).run();
 }
 
+// The window immediately BEFORE the current one - e.g. if the window is
+// 90 days, this covers days 90-180 ago. Used to compare current standing
+// against "last period" on the leaderboard.
+export async function getPriorWindowPoints(env, resellerPartyId) {
+  const windowDays = await getRollingWindowDays(env);
+  const row = await env.DB.prepare(
+    "SELECT COALESCE(SUM(points),0) AS t FROM reseller_points_ledger WHERE reseller_party_id = ? AND event_type = 'earned' AND date(created_at) >= date('now', '-' || ? || ' days') AND date(created_at) < date('now', '-' || ? || ' days')"
+  ).bind(resellerPartyId, windowDays * 2, windowDays).first();
+  return row.t;
+}
+
 export async function getCurrentLevel(env, resellerPartyId) {
   const windowDays = await getRollingWindowDays(env);
   const row = await env.DB.prepare(

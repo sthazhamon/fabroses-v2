@@ -1,6 +1,10 @@
 export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   const typeFilter = url.searchParams.get("item_type");
+  const categoryFilter = url.searchParams.get("category_id");
+  const fabricFilter = url.searchParams.get("fabric_id");
+  const workTypeFilter = url.searchParams.get("work_type_id");
+  const patternFilter = url.searchParams.get("pattern_id");
 
   let query = `
     SELECT i.*, c.name AS category_name, f.name AS fabric_name, w.name AS work_type_name, p.name AS pattern_name
@@ -12,6 +16,10 @@ export async function onRequestGet({ request, env }) {
     WHERE i.active = 1`;
   const params = [];
   if (typeFilter) { query += " AND i.item_type = ?"; params.push(typeFilter); }
+  if (categoryFilter) { query += " AND i.category_id = ?"; params.push(categoryFilter); }
+  if (fabricFilter) { query += " AND i.fabric_id = ?"; params.push(fabricFilter); }
+  if (workTypeFilter) { query += " AND i.work_type_id = ?"; params.push(workTypeFilter); }
+  if (patternFilter) { query += " AND i.pattern_id = ?"; params.push(patternFilter); }
   query += " ORDER BY i.created_at DESC";
 
   const { results } = await env.DB.prepare(query).bind(...params).all();
