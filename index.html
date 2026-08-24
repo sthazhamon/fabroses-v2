@@ -1568,6 +1568,23 @@ async function loadMyWork(){
       sub: function(o){return o.id+' · '+o.stage+' · '+o.received_quantity_total+'/'+o.target_quantity;},
       onClick: function(o){return "viewMyWorkOrder('"+o.id+"')";}, empty: "Nothing pending.",
     }) + '<button type="button" class="secondary btn-sm" style="margin-top:8px;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\'">Show past jobs</button><div style="display:none;margin-top:6px;">'+completedOrderHtml+'</div>';
+    const outgoingHtml = renderCardList(wp.outgoing_to_ship, {
+      icon: function(){return "🚚";}, title: function(d){return d.id;}, sub: function(d){return d.status;},
+      action: function(d){return '<button class="secondary btn-sm" onclick="manageMyOutgoing(\''+d.id+'\')">Pick/Ship</button>';}, empty: "Nothing pending.",
+    });
+    const stockRows = wp.own_stock.map(function(l){return '<div class="list-card">'+
+      '<input type="checkbox" class="mystock-check" data-lot-id="'+l.id+'" data-max="'+l.quantity_balance+'" style="width:auto;margin-right:8px;">'+
+      '<div class="lc-icon">'+(l.source_type==="work_order_output"?"🧵":"📋")+'</div>'+
+      '<div class="lc-body"><p class="lc-title">'+l.item_name+'</p><p class="lc-sub">'+l.id+'</p></div>'+
+      '<div class="lc-right"><input type="number" class="mystock-qty" data-lot-id="'+l.id+'" value="'+l.quantity_balance+'" max="'+l.quantity_balance+'" step="0.1" style="width:70px;" disabled></div></div>';}).join("");
+    const stockHtml = wp.own_stock.length
+      ? '<div class="card-list">'+stockRows+'</div><button class="secondary" onclick="shipSelectedStock()" style="margin-top:8px;">Ship selected</button><div id="mystock-ship-msg"></div>'
+      : '<p class="muted">None.</p>';
+
+    const shipmentRows = (wp.recent_shipments||[]).map(function(d){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+d.id+' → '+(d.to_site_name||"-")+'</p>'+
+      '<p class="lc-sub">'+(d.item_summary||"-")+' · '+(d.courier||"no courier")+' '+(d.tracking_id||"")+' · '+d.status+' · '+(d.shipped_at||"-").slice(0,10)+'</p></div>'+
+      '<button class="secondary btn-sm" onclick="editDispatchTracking(\''+d.id+'\')">Tracking</button></div>';}).join("");
+    const shipmentsHtml = shipmentRows || '<p class="muted">Nothing shipped yet.</p>';
 
     function sectionCard(sectionId, emoji, title, count, hideIfEmpty, bodyHtml){
       if(hideIfEmpty && count===0) return "";
@@ -1590,38 +1607,6 @@ async function loadMyWork(){
       const body = document.getElementById(id+"-body");
       if(body) body.style.display = "none";
     });
-    const outgoingHtml = renderCardList(wp.outgoing_to_ship, {
-      icon: function(){return "🚚";}, title: function(d){return d.id;}, sub: function(d){return d.status;},
-      action: function(d){return '<button class="secondary btn-sm" onclick="manageMyOutgoing(\''+d.id+'\')">Pick/Ship</button>';}, empty: "Nothing pending.",
-    });
-    const stockRows = wp.own_stock.map(function(l){return '<div class="list-card">'+
-      '<input type="checkbox" class="mystock-check" data-lot-id="'+l.id+'" data-max="'+l.quantity_balance+'" style="width:auto;margin-right:8px;">'+
-      '<div class="lc-icon">'+(l.source_type==="work_order_output"?"🧵":"📋")+'</div>'+
-      '<div class="lc-body"><p class="lc-title">'+l.item_name+'</p><p class="lc-sub">'+l.id+'</p></div>'+
-      '<div class="lc-right"><input type="number" class="mystock-qty" data-lot-id="'+l.id+'" value="'+l.quantity_balance+'" max="'+l.quantity_balance+'" step="0.1" style="width:70px;" disabled></div></div>';}).join("");
-    const stockHtml = wp.own_stock.length
-      ? '<div class="card-list">'+stockRows+'</div><button class="secondary" onclick="shipSelectedStock()" style="margin-top:8px;">Ship selected</button><div id="mystock-ship-msg"></div>'
-      : '<p class="muted">None.</p>';
-
-    const shipmentRows = (wp.recent_shipments||[]).map(function(d){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+d.id+' → '+(d.to_site_name||"-")+'</p>'+
-      '<p class="lc-sub">'+(d.item_summary||"-")+' · '+(d.courier||"no courier")+' '+(d.tracking_id||"")+' · '+d.status+' · '+(d.shipped_at||"-").slice(0,10)+'</p></div>'+
-      '<button class="secondary btn-sm" onclick="editDispatchTracking(\''+d.id+'\')">Tracking</button></div>';}).join("");
-    const shipmentsHtml = shipmentRows || '<p class="muted">Nothing shipped yet.</p>';
-
-    function sectionCard(emoji, title, count, needsAction, bodyHtml){
-      const badgeColor = needsAction && count>0 ? "#c0392b" : "#8a8f98";
-      return '<div class="card" style="margin-top:14px;border-left:4px solid '+(needsAction && count>0?"var(--rose)":"var(--line)")+';">'+
-        '<h4 style="margin:0 0 10px;display:flex;align-items:center;gap:8px;">'+emoji+' '+title+
-        '<span style="background:'+badgeColor+';color:#fff;font-size:0.7rem;padding:2px 9px;border-radius:12px;font-weight:700;">'+count+'</span></h4>'+
-        bodyHtml+'</div>';
-    }
-
-    document.getElementById("mywork-content").innerHTML =
-      sectionCard("📦","Material waiting for me to confirm", wp.incoming_to_confirm.length, true, incomingHtml)+
-      sectionCard("🧵","My pending jobs", wp.pending_orders.length, true, orderHtml)+
-      sectionCard("🚚","My outgoing to pick/ship", wp.outgoing_to_ship.length, true, outgoingHtml)+
-      sectionCard("📋","My own stock — select any items to ship back together", wp.own_stock.length, false, stockHtml)+
-      sectionCard("🚚","My last shipments", (wp.recent_shipments||[]).length, false, shipmentsHtml);
     document.querySelectorAll(".mystock-check").forEach(function(cb){
       cb.onchange = function(){
         const qtyField = document.querySelector('.mystock-qty[data-lot-id="'+cb.dataset.lotId+'"]');
