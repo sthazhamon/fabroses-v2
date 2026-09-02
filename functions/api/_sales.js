@@ -37,6 +37,14 @@ export async function createSale(env, { lines, customer_party_id, customer_name,
   // Validate every line BEFORE writing anything — avoids leaving a partial
   // sale behind if, say, line 3 of 4 turns out to be short on stock.
   for (const line of lines) {
+    // A selected item already names the thing being sold - don't force a
+    // separate, manually-typed description on top of it. This was blocking
+    // sales entirely whenever someone picked an item (including a
+    // sales-return lot) but didn't also retype its name into a second field.
+    if (!line.description && line.item_id) {
+      const itemRow = await env.DB.prepare("SELECT name FROM items WHERE id = ?").bind(line.item_id).first();
+      if (itemRow) line.description = itemRow.name;
+    }
     if (!line.description || line.sale_price == null) throw { status: 400, error: "Each line needs a description and sale_price" };
     if (line.item_id) {
       const qty = line.quantity || 1;
@@ -103,12 +111,24 @@ export async function createSale(env, { lines, customer_party_id, customer_name,
   let shipmentDispatchId = null;
   if (fulfills_customer_order_id) {
     await env.DB.prepare("UPDATE customer_orders SET status = 'billed', sale_id = ?, updated_at = datetime('now') WHERE id = ?").bind(id, fulfills_customer_order_id).run();
+  }
 
-    if (allConsumedForDispatch.length) {
+  if (allConsumedForDispatch.length) {
+    const fromSite = await env.DB.prepare("SELECT site_type FROM sites WHERE id = ?").bind(allConsumedForDispatch[0].site_id).first();
+    // A formal customer order always gets its shipment tracked, regardless
+    // of which site the stock came from - that's the original, correct
+    // behavior. But a direct ("cash sale") purchase previously got no
+    // dispatch at all, even when the stock physically came from a worker's
+    // own site - silently leaving nothing for the worker to see, and no
+    // notification that anything needed to ship. Now it does too, whenever
+    // the stock genuinely came from a worker rather than the store.
+    const needsDispatch = fulfills_customer_order_id || (fromSite && fromSite.site_type === "worker");
+    if (needsDispatch) {
       shipmentDispatchId = await createDispatch(env, {
         dispatch_type: "customer_shipment", from_site_id: allConsumedForDispatch[0].site_id, to_site_id: null,
         items: allConsumedForDispatch.map((c) => ({ item_id: c.item_id, lot_id: c.lot_id, expected_quantity: c.quantity })),
-        related_customer_order_id: fulfills_customer_order_id,
+        related_customer_order_id: fulfills_customer_order_id || null,
+        related_sale_id: fulfills_customer_order_id ? null : id,
       });
     }
   }

@@ -10,6 +10,11 @@ const sqliteDb = new DatabaseSync(":memory:");
 sqliteDb.exec(readFileSync(new URL("../schema.sql", import.meta.url), "utf8"));
 const env = { DB: wrapD1(sqliteDb), PHOTOS: makeFakeR2(), AUTH_SECRET: "test-secret" };
 function req(b) { return { json: async () => b }; }
+function daysFromNow(offset) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
 
 async function run() {
   section("=== Setup: two resellers, only one targeted by a milestone ===");
@@ -29,20 +34,20 @@ async function run() {
   const untargetedReseller = await (await partiesMod.onRequestPost({ request: req({ name: "Other Resellers", type: "reseller" }), env })).json();
 
   const milestoneRes = await (await milestonesMod.onRequestPost({
-    request: req({ name: "August Challenge", target_value: 5000, start_date: "2026-08-01", end_date: "2026-08-31", perk_type: "bonus_points", perk_points: 2000, reseller_party_ids: [targetedReseller.id] }),
+    request: req({ name: "August Challenge", target_value: 5000, start_date: daysFromNow(-5), end_date: daysFromNow(5), perk_type: "bonus_points", perk_points: 2000, reseller_party_ids: [targetedReseller.id] }),
     env,
   })).json();
   assert(milestoneRes.id, "the milestone is created with its target reseller");
 
   section("=== Progress builds up but doesn't trigger until the target is genuinely met ===");
-  const partialSale = await (await salesMod.onRequestPost({ request: req({ lines: [{ item_id: item.id, quantity: 1, description: "Saree", sale_price: 3000 }], customer_party_id: targetedReseller.id, customer_name: null, sale_date: "2026-08-05" }), env, data: {} })).json();
+  const partialSale = await (await salesMod.onRequestPost({ request: req({ lines: [{ item_id: item.id, quantity: 1, description: "Saree", sale_price: 3000 }], customer_party_id: targetedReseller.id, customer_name: null, sale_date: daysFromNow(-3) }), env, data: {} })).json();
   const partialPayment = await (await paymentsMod.onRequestPost({
     request: req({ party_id: targetedReseller.id, direction: "receivable", amount: 3000, allocations: [{ bill_type: "sale", bill_id: partialSale.id, amount_applied: 3000 }] }), env, data: {},
   })).json();
   assert(partialPayment.milestone_achievements.length === 0, "3000 of a 5000 target correctly doesn't trigger the milestone yet");
 
   section("=== CRITICAL: crossing the target correctly triggers the bonus-points perk ===");
-  const finalSale = await (await salesMod.onRequestPost({ request: req({ lines: [{ item_id: item.id, quantity: 1, description: "Saree", sale_price: 2500 }], customer_party_id: targetedReseller.id, customer_name: null, sale_date: "2026-08-10" }), env, data: {} })).json();
+  const finalSale = await (await salesMod.onRequestPost({ request: req({ lines: [{ item_id: item.id, quantity: 1, description: "Saree", sale_price: 2500 }], customer_party_id: targetedReseller.id, customer_name: null, sale_date: daysFromNow(-2) }), env, data: {} })).json();
   const finalPayment = await (await paymentsMod.onRequestPost({
     request: req({ party_id: targetedReseller.id, direction: "receivable", amount: 2500, allocations: [{ bill_type: "sale", bill_id: finalSale.id, amount_applied: 2500 }] }), env, data: {},
   })).json();
@@ -53,14 +58,14 @@ async function run() {
   assert(spendableBalance === 3000 + 2500 + 2000, "CRITICAL: balance correctly includes BOTH regular earned points AND the milestone bonus, got " + spendableBalance);
 
   section("=== The untargeted reseller never gets checked at all, even with identical spending ===");
-  const untargetedSale = await (await salesMod.onRequestPost({ request: req({ lines: [{ item_id: item.id, quantity: 1, description: "Saree", sale_price: 6000 }], customer_party_id: untargetedReseller.id, customer_name: null, sale_date: "2026-08-15" }), env, data: {} })).json();
+  const untargetedSale = await (await salesMod.onRequestPost({ request: req({ lines: [{ item_id: item.id, quantity: 1, description: "Saree", sale_price: 6000 }], customer_party_id: untargetedReseller.id, customer_name: null, sale_date: daysFromNow(-1) }), env, data: {} })).json();
   const untargetedPayment = await (await paymentsMod.onRequestPost({
     request: req({ party_id: untargetedReseller.id, direction: "receivable", amount: 6000, allocations: [{ bill_type: "sale", bill_id: untargetedSale.id, amount_applied: 6000 }] }), env, data: {},
   })).json();
   assert(untargetedPayment.milestone_achievements.length === 0, "CRITICAL: a reseller who spent MORE but was never targeted correctly gets no achievement at all");
 
   section("=== Achieving it again on a further payment doesn't double-fire the perk ===");
-  const extraSale = await (await salesMod.onRequestPost({ request: req({ lines: [{ item_id: item.id, quantity: 1, description: "Saree", sale_price: 100 }], customer_party_id: targetedReseller.id, customer_name: null, sale_date: "2026-08-20" }), env, data: {} })).json();
+  const extraSale = await (await salesMod.onRequestPost({ request: req({ lines: [{ item_id: item.id, quantity: 1, description: "Saree", sale_price: 100 }], customer_party_id: targetedReseller.id, customer_name: null, sale_date: daysFromNow(0) }), env, data: {} })).json();
   const extraPayment = await (await paymentsMod.onRequestPost({
     request: req({ party_id: targetedReseller.id, direction: "receivable", amount: 100, allocations: [{ bill_type: "sale", bill_id: extraSale.id, amount_applied: 100 }] }), env, data: {},
   })).json();
@@ -71,10 +76,10 @@ async function run() {
   const rewardRes = await (await rewardItemsMod.onRequestPost({ request: req({ name: "Watch", points_cost: 0 }), env })).json();
   const secondReseller = await (await partiesMod.onRequestPost({ request: req({ name: "Third Reseller", type: "reseller" }), env })).json();
   await milestonesMod.onRequestPost({
-    request: req({ name: "September Reward Challenge", target_value: 1000, start_date: "2026-09-01", end_date: "2026-09-30", perk_type: "reward_item", perk_reward_item_id: rewardRes.id, reseller_party_ids: [secondReseller.id] }),
+    request: req({ name: "September Reward Challenge", target_value: 1000, start_date: daysFromNow(10), end_date: daysFromNow(40), perk_type: "reward_item", perk_reward_item_id: rewardRes.id, reseller_party_ids: [secondReseller.id] }),
     env,
   });
-  const septSale = await (await salesMod.onRequestPost({ request: req({ lines: [{ item_id: item.id, quantity: 1, description: "Saree", sale_price: 1500 }], customer_party_id: secondReseller.id, customer_name: null, sale_date: "2026-09-10" }), env, data: {} })).json();
+  const septSale = await (await salesMod.onRequestPost({ request: req({ lines: [{ item_id: item.id, quantity: 1, description: "Saree", sale_price: 1500 }], customer_party_id: secondReseller.id, customer_name: null, sale_date: daysFromNow(20) }), env, data: {} })).json();
   const septPayment = await (await paymentsMod.onRequestPost({
     request: req({ party_id: secondReseller.id, direction: "receivable", amount: 1500, allocations: [{ bill_type: "sale", bill_id: septSale.id, amount_applied: 1500 }] }), env, data: {},
   })).json();

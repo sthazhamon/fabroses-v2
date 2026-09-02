@@ -39,6 +39,21 @@ export async function onRequestPost({ request, env, data }) {
     await env.DB.prepare(
       "INSERT INTO supplier_bill_items (supplier_bill_id, purchase_order_item_id, item_id, quantity, rate, tax_rate, tax_amount, line_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     ).bind(id, line.purchase_order_item_id || null, line.item_id || null, line.quantity, line.rate, line.tax_rate || 0, lineTax, lineBase + lineTax).run();
+
+    // The lot(s) this receipt created may have already gotten a PO-rate
+    // estimate at receive time. Now that the actual bill has arrived
+    // (possibly at a different rate, after tax/negotiation), refresh their
+    // cost basis - but only lots still sitting in stock, since anything
+    // already consumed by a completed job already had its own cost locked
+    // in at that moment and isn't retroactively changed by this.
+    if (purchase_order_id && line.item_id) {
+      const { results: lotsToUpdate } = await env.DB.prepare(
+        "SELECT id, quantity_original FROM item_lots WHERE source_reference = ? AND item_id = ? AND quantity_balance > 0"
+      ).bind(purchase_order_id, line.item_id).all();
+      for (const lot of lotsToUpdate) {
+        await env.DB.prepare("UPDATE item_lots SET cost_total = ? WHERE id = ?").bind(line.rate * lot.quantity_original, lot.id).run();
+      }
+    }
   }
 
   if (purchase_order_id) {

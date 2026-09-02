@@ -18,6 +18,16 @@ export async function onRequestGet({ params, env }) {
       shippingAddress = co.delivery_address || co.party_address || null;
       shippingName = co.customer_name || co.reseller_name || null;
     }
+  } else if (dispatch.dispatch_type === "customer_shipment" && dispatch.related_sale_id) {
+    const sale = await env.DB.prepare(
+      `SELECT s.customer_name, s.reseller_name, p.name AS party_name, p.address AS party_address
+       FROM sales s LEFT JOIN parties p ON p.id = s.customer_party_id
+       WHERE s.id = ?`
+    ).bind(dispatch.related_sale_id).first();
+    if (sale) {
+      shippingAddress = sale.party_address || null;
+      shippingName = sale.customer_name || sale.reseller_name || sale.party_name || null;
+    }
   }
 
   const { results: items } = await env.DB.prepare(

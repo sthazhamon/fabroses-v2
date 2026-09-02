@@ -13,7 +13,7 @@
 <style>
   :root{ --rose:#b5384f; --rose-dark:#7d2438; --cream:#faf5f2; --ink:#2c1f24; --line:#ece0da; --ok:#3f7d54; --warn:#c98a2c; --shadow:0 2px 10px rgba(125,36,56,0.08); }
   *{box-sizing:border-box;}
-  body{margin:0; font-family:'Segoe UI',system-ui,sans-serif; background:var(--cream); color:var(--ink);}
+  body{margin:0; overflow-x:hidden; font-family:'Segoe UI',system-ui,sans-serif; background:var(--cream); color:var(--ink);}
   header{background:var(--rose); color:#fff; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;}
   header h1{font-size:1.1rem; margin:0; font-weight:700; letter-spacing:0.2px;}
   header .who{font-size:0.75rem; opacity:0.9;}
@@ -590,7 +590,14 @@ async function apiFetch(path, opts){
   if(!res.ok) throw new Error(json.error||"Request failed — status "+res.status);
   return json;
 }
-function showError(msg){ const el=document.getElementById("error-banner"); el.textContent=msg; el.style.display="block"; setTimeout(function(){el.style.display="none";},6000); }
+function showError(msg){
+  const el=document.getElementById("error-banner");
+  el.innerHTML = '<span>⚠️ '+escapeHtml(msg)+'</span> <button type="button" onclick="this.parentElement.style.display=\'none\'" style="float:right;background:none;border:none;color:#a33;font-weight:700;cursor:pointer;font-size:1rem;">×</button>';
+  el.style.display="block";
+  el.scrollIntoView({behavior:"smooth", block:"center"});
+  clearTimeout(window.__errorBannerTimeout);
+  window.__errorBannerTimeout = setTimeout(function(){el.style.display="none";},12000);
+}
 
 async function doLogin(){
   const username=document.getElementById("login-username").value.trim();
@@ -665,6 +672,21 @@ function closeAllNavDropdowns(){
 document.addEventListener("click", function(e){
   if(!e.target.closest(".nav-dropdown-wrap")) closeAllNavDropdowns();
 });
+// Prevents accidental double-submission: if a button doesn't visibly react
+// right away, people tend to click again, sometimes causing a duplicate
+// entry. This briefly disables (and visibly dims) any clicked action
+// button for a short cooldown, in the capture phase so the block happens
+// before the button's own onclick handler ever runs a second time.
+document.addEventListener("click", function(e){
+  const btn = e.target.closest("button[onclick]");
+  if(!btn) return;
+  if(btn.dataset.busy==="1"){ e.preventDefault(); e.stopImmediatePropagation(); return; }
+  btn.dataset.busy = "1";
+  btn.style.filter = "brightness(0.8)";
+  setTimeout(function(){
+    if(btn && btn.isConnected){ btn.dataset.busy=""; btn.style.filter=""; }
+  }, 1200);
+}, true);
 function openMoreSheet(tabs){
   const sheet = document.getElementById("more-sheet");
   sheet.innerHTML = tabs.map(function(t){return '<button onclick="switchTab(\''+t.id+'\');closeMoreSheet();">'+(TAB_ICONS[t.id]||"📄")+' '+t.label+'</button>';}).join("");
@@ -838,6 +860,18 @@ async function loadDashboard(){
       ? alerts.overdue_work_orders.map(function(w){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+w.description+'</p><p class="lc-sub">'+w.id+' · due '+w.due_date+' · '+w.stage+' · '+(w.worker_site_name||"-")+'</p></div>'+
         '<button class="secondary btn-sm" onclick="switchTab(\'workorders\');viewWO(\''+w.id+'\')">View</button></div>';}).join("")
       : '<p class="muted">Nothing overdue right now.</p>';
+    const pendingWoHtml = alerts.pending_work_orders.length
+      ? alerts.pending_work_orders.slice(0,10).map(function(w){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+w.description+'</p><p class="lc-sub">'+w.id+' · '+w.stage+' · '+(w.worker_site_name||"-")+(w.due_date?' · due '+w.due_date:'')+'</p></div>'+
+        '<button class="secondary btn-sm" onclick="switchTab(\'workorders\');viewWO(\''+w.id+'\')">View</button></div>';}).join("")+(alerts.pending_work_orders.length>10?'<p class="muted">and '+(alerts.pending_work_orders.length-10)+' more...</p>':'')
+      : '<p class="muted">Nothing in progress right now.</p>';
+    const unsoldHtml = alerts.unsold_stock.length
+      ? alerts.unsold_stock.slice(0,10).map(function(s){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+s.name+(s.item_code?' ('+s.item_code+')':'')+'</p><p class="lc-sub">'+s.total_stock+' still in stock, unsold</p></div>'+
+        '<button class="secondary btn-sm" onclick="switchTab(\'catalogue\');viewItem(\''+s.item_id+'\')">View</button></div>';}).join("")+(alerts.unsold_stock.length>10?'<p class="muted">and '+(alerts.unsold_stock.length-10)+' more...</p>':'')
+      : '<p class="muted">No finished goods sitting unsold right now.</p>';
+    const missingBomHtml = alerts.items_missing_bom.length
+      ? alerts.items_missing_bom.map(function(i){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+i.name+(i.item_code?' ('+i.item_code+')':'')+'</p><p class="lc-sub">No BOM entered - this will block work order creation</p></div>'+
+        '<button class="secondary btn-sm" onclick="switchTab(\'catalogue\');viewItem(\''+i.item_id+'\')">View</button></div>';}).join("")
+      : '<p class="muted">Every finished item has a BOM entered.</p>';
     document.getElementById("dash-content").innerHTML =
       '<div class="kpi-grid">'+
         '<div class="kpi"><div class="num">Rs '+pnl.net_revenue+'</div><div class="lbl">Net revenue</div></div>'+
@@ -845,7 +879,10 @@ async function loadDashboard(){
       '</div><p class="muted">All-time</p>'+
       '<h4>Needs attention</h4>'+
       '<p class="muted" style="margin-bottom:4px;">Customer orders with nothing yet linked to a job ('+alerts.unactioned_orders.length+')</p>'+ordersHtml+
-      '<p class="muted" style="margin:10px 0 4px;">Overdue work orders ('+alerts.overdue_work_orders.length+')</p>'+overdueHtml;
+      '<p class="muted" style="margin:10px 0 4px;">Overdue work orders ('+alerts.overdue_work_orders.length+')</p>'+overdueHtml+
+      '<p class="muted" style="margin:10px 0 4px;">Work orders in progress ('+alerts.pending_work_orders.length+')</p>'+pendingWoHtml+
+      '<p class="muted" style="margin:10px 0 4px;">Finished goods still unsold ('+alerts.unsold_stock.length+')</p>'+unsoldHtml+
+      '<p class="muted" style="margin:10px 0 4px;">Finished items with no BOM entered ('+alerts.items_missing_bom.length+')</p>'+missingBomHtml;
   }catch(e){ document.getElementById("dash-content").textContent = e.message; }
 }
 
@@ -1224,18 +1261,26 @@ async function saveLotQty(lotId){
 async function viewLotHistory(lotId){
   try{
     const h = await apiFetch("/item-lots/"+lotId+"/history");
+    document.querySelectorAll(".lot-history-overlay").forEach(function(el){el.remove();});
     const rows = h.movements.map(function(m){
       let line = m.event_type;
       if(m.from_site_name||m.to_site_name) line += ": "+(m.from_site_name||"-")+" → "+(m.to_site_name||"-");
       if(m.work_order_description) line += " ("+m.work_order_description+")";
       return '<tr><td>'+m.created_at+'</td><td>'+line+'</td><td>'+m.quantity+'</td><td>'+(m.created_by||"-")+'</td></tr>';
     }).join("");
+    const bomRows = (h.bom_consumption||[]).map(function(c){
+      return '<div class="list-card" style="cursor:pointer;" onclick="viewLotHistory(\''+c.lot_id+'\')"><div class="lc-body">'+
+        '<p class="lc-title">'+escapeHtml(c.item_name||c.lot_id)+' ('+(c.item_code||"-")+')</p>'+
+        '<p class="lc-sub">'+c.quantity+' consumed from '+c.lot_id+' · click to trace this raw material further</p></div></div>';
+    }).join("");
     const overlay = document.createElement("div");
+    overlay.className = "lot-history-overlay";
     overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9998;display:flex;align-items:center;justify-content:center;";
     overlay.innerHTML = '<div class="card" style="max-width:500px;width:92%;max-height:85vh;overflow:auto;">'+
       '<h4 style="margin-top:0;">Full history — '+lotId+'</h4>'+
       '<p class="muted">'+h.lot.item_name+' ('+(h.lot.item_code||h.lot.item_id)+')</p>'+
       (rows?'<table><tr><th>When</th><th>Event</th><th>Qty</th><th>By</th></tr>'+rows+'</table>':'<p class="muted">No movements recorded.</p>')+
+      (bomRows?'<h4>Made from</h4>'+bomRows:'')+
       '<button class="secondary" onclick="this.closest(\'div[style*=fixed]\').remove()">Close</button></div>';
     document.body.appendChild(overlay);
   }catch(e){showError(e.message);}
@@ -1940,7 +1985,7 @@ async function confirmMyIncoming(dispatchId){
       '<td><input id="myrecv-lot-'+it.id+'" placeholder="Scanned lot ID" style="width:110px;"></td>'+
       '<td><button type="button" class="secondary btn-sm" onclick="openScanner(function(code){ const parts=code.split(\'|\'); document.getElementById(\'myrecv-item-'+it.id+'\').value=parts[0]||code; if(parts[1]) document.getElementById(\'myrecv-lot-'+it.id+'\').value=parts[1]; })">Scan</button></td></tr>';}).join("");
     document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+d.id+'</div><p class="muted">Scan or enter each item to confirm you\'re receiving the right thing.</p>'+
-      '<table><tr><th>Item</th><th>Qty</th><th>Item ID</th><th>Lot ID</th><th></th></tr>'+rows+'</table>'+
+      '<div style="overflow-x:auto;"><table>'+'<tr><th>Item</th><th>Qty</th><th>Item ID</th><th>Lot ID</th><th></th></tr>'+rows+'</table></div>'+
       '<button class="secondary" onclick="submitMyIncomingConfirm(\''+dispatchId+'\')">Confirm receipt</button><div id="myrecv-msg"></div></div>';
     scrollToDetail("mywork-detail");
   }catch(e){showError(e.message);}
@@ -1972,9 +2017,9 @@ async function manageMyOutgoing(dispatchId){
     }).join("");
     const allPicked = d.items.every(function(it){return it.scanned_quantity!==null;});
     document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+d.id+'</div>'+
-      (d.shipping_address?'<div class="row" style="align-items:flex-start;"><p class="muted" style="flex:1;white-space:pre-line;margin:0;"><b>Shipping to '+escapeHtml(d.shipping_name||d.to_site_name||"")+':</b><br>'+escapeHtml(d.shipping_address)+'</p>'+
-        '<button type="button" class="secondary btn-sm" data-ship-name="'+escapeHtml(d.shipping_name||d.to_site_name||"")+'" data-ship-address="'+escapeHtml(d.shipping_address)+'" onclick="printAddressLabelFromButton(this)">Print shipping label</button></div>':'')+
-      '<table><tr><th>Item</th><th>Qty</th><th></th></tr>'+itemRows+'</table>'+
+      '<div class="row" style="align-items:flex-start;"><p class="muted" style="flex:1;white-space:pre-line;margin:0;"><b>Shipping to '+escapeHtml(d.shipping_name||d.to_site_name||"")+':</b><br>'+(d.shipping_address?escapeHtml(d.shipping_address):'<span style="color:var(--warn);">No address on file — add one on the Sites or Parties tab.</span>')+'</p>'+
+        '<button type="button" class="secondary btn-sm" data-ship-name="'+escapeHtml(d.shipping_name||d.to_site_name||"")+'" data-ship-address="'+escapeHtml(d.shipping_address||"")+'" onclick="printAddressLabelFromButton(this)">Print shipping label</button></div>'+
+      '<div style="overflow-x:auto;"><table><tr><th>Item</th><th>Qty</th><th></th></tr>'+itemRows+'</table></div>'+
       (allPicked?'<label>Courier</label><input id="mywork-ship-courier"><label>Tracking</label><input id="mywork-ship-tracking">'+
         '<button class="secondary" onclick="shipMyOutgoing(\''+dispatchId+'\')">Ship it</button><div id="mywork-ship-msg"></div>':'')+
       '</div>';
@@ -2127,9 +2172,9 @@ async function openDispatchAction(dispatchId){
     }).join("");
     const allPicked = d.items.every(function(it){return it.scanned_quantity!==null;});
     document.getElementById("dispatch-action-area").innerHTML = '<div class="card"><div class="code-big">'+d.id+'</div><p>'+d.dispatch_type+' | status: '+d.status+'</p>'+
-      (d.shipping_address?'<div class="row" style="align-items:flex-start;"><p class="muted" style="flex:1;white-space:pre-line;margin:0;"><b>Shipping to '+escapeHtml(d.shipping_name||d.to_site_name||"")+':</b><br>'+escapeHtml(d.shipping_address)+'</p>'+
-        '<button type="button" class="secondary btn-sm" data-ship-name="'+escapeHtml(d.shipping_name||d.to_site_name||"")+'" data-ship-address="'+escapeHtml(d.shipping_address)+'" onclick="printAddressLabelFromButton(this)">Print shipping label</button></div>':'')+
-      '<table><tr><th>Item</th><th>Qty</th><th></th></tr>'+itemRows+'</table>'+
+      '<div class="row" style="align-items:flex-start;"><p class="muted" style="flex:1;white-space:pre-line;margin:0;"><b>Shipping to '+escapeHtml(d.shipping_name||d.to_site_name||"")+':</b><br>'+(d.shipping_address?escapeHtml(d.shipping_address):'<span style="color:var(--warn);">No address on file — add one on the Sites or Parties tab.</span>')+'</p>'+
+        '<button type="button" class="secondary btn-sm" data-ship-name="'+escapeHtml(d.shipping_name||d.to_site_name||"")+'" data-ship-address="'+escapeHtml(d.shipping_address||"")+'" onclick="printAddressLabelFromButton(this)">Print shipping label</button></div>'+
+      '<div style="overflow-x:auto;"><table><tr><th>Item</th><th>Qty</th><th></th></tr>'+itemRows+'</table></div>'+
       (allPicked && d.status!=="shipped" ? '<label>Courier</label><input id="ship-courier"><label>Tracking (optional)</label><input id="ship-tracking">'+
         '<button class="secondary" onclick="shipThisDispatch(\''+d.id+'\')">Pack & Send</button><div id="ship-msg"></div>' : '')+
       (["pending_pick","picked"].includes(d.status)?'<button class="secondary" onclick="cancelDispatch(\''+d.id+'\')" style="margin-top:10px;color:var(--warn);border-color:var(--warn);">Cancel this dispatch</button><div id="cancel-msg"></div>':'')+
@@ -2180,7 +2225,7 @@ async function loadDispatchHistory(){
     const filtered = list.filter(function(d){return d.status==="shipped"||d.status==="received";}).slice(0,50);
     document.getElementById("dispatch-history").innerHTML = renderCardList(filtered, {
       icon: function(d){return d.has_receive_mismatch?"⚠️":"✅";}, title: function(d){return d.id+' · '+d.dispatch_type+(d.has_receive_mismatch?' <span style="color:var(--warn);font-weight:700;">QUANTITY MISMATCH</span>':'');},
-      sub: function(d){return (d.item_summary||"-")+' · '+(d.from_site_name||"-")+' → '+(d.to_site_name||"-")+' · '+(d.courier||"-")+' '+(d.tracking_id||"")+' · '+d.status+' · '+(d.shipped_at||d.created_at||"-").slice(0,10);},
+      sub: function(d){return (d.item_summary||"-")+(d.shipping_name?' · Ship to: '+escapeHtml(d.shipping_name):'')+' · '+(d.from_site_name||"-")+' → '+(d.to_site_name||"-")+' · '+(d.courier||"-")+' '+(d.tracking_id||"")+' · '+d.status+' · '+(d.shipped_at||d.created_at||"-").slice(0,10);},
       action: function(d){return '<button class="secondary btn-sm" onclick="editDispatchTracking(\''+d.id+'\')">Tracking</button>';},
       empty: "Nothing shipped yet in this range.",
     });
@@ -2188,12 +2233,15 @@ async function loadDispatchHistory(){
 }
 async function editDispatchTracking(id){
   try{
-    const info = await apiFetch("/dispatches/"+id+"/tracking");
+    const [info, dispatch] = await Promise.all([apiFetch("/dispatches/"+id+"/tracking"), apiFetch("/dispatches/"+id)]);
+    const itemSummary = dispatch.items.map(function(it){return it.item_name+' ('+(it.scanned_quantity??it.expected_quantity)+')';}).join(", ");
     const noteRows = info.notes.map(function(n){return '<div class="row" style="margin:4px 0;"><span class="muted">'+n.created_at+' by '+(n.created_by||"?")+':</span> '+(n.courier?"Courier: "+n.courier+" ":"")+(n.tracking_id?"Tracking: "+n.tracking_id+" ":"")+(n.note||"")+'</div>';}).join("");
     const overlay = document.createElement("div");
     overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9998;display:flex;align-items:center;justify-content:center;";
     overlay.innerHTML = '<div class="card" style="max-width:420px;width:92%;max-height:85vh;overflow:auto;">'+
       '<h4 style="margin-top:0;">Tracking for '+id+'</h4>'+
+      '<p class="muted" style="margin:0 0 6px;">'+escapeHtml(itemSummary||"-")+'</p>'+
+      '<p class="muted" style="margin:0 0 10px;white-space:pre-line;"><b>Shipping to '+escapeHtml(dispatch.shipping_name||dispatch.to_site_name||"-")+':</b><br>'+(dispatch.shipping_address?escapeHtml(dispatch.shipping_address):'No address on file')+'</p>'+
       '<p><b>Original:</b> '+(info.original.courier||"-")+' / '+(info.original.tracking_id||"no tracking yet")+'</p>'+
       (noteRows?'<p><b>Notes:</b></p>'+noteRows:'<p class="muted">No additional notes yet.</p>')+
       '<label>'+(info.original.courier||info.original.tracking_id?"Add a note (courier/tracking changed?)":"Set courier / tracking")+'</label>'+
@@ -2315,10 +2363,10 @@ async function loadPOReceiveQueue(){
     const storeOptions = sites.filter(function(s){return s.site_type==="store";}).map(function(s){return '<option value="'+s.id+'">'+s.name+'</option>';}).join("");
     document.getElementById("po-receive-queue").innerHTML = pending.map(function(p){
       return '<div class="list-card"><div class="lc-icon">📦</div>'+
-        '<div class="lc-body"><p class="lc-title">'+(p.line.item_name||"")+' — '+p.po.supplier_name+'</p><p class="lc-sub">'+p.po.id+' · '+p.outstanding+' of '+p.line.quantity_ordered+' still outstanding</p>'+
+        '<div class="lc-body"><p class="lc-title">'+escapeHtml(p.line.item_name||"")+' — '+escapeHtml(p.po.supplier_name)+'</p><p class="lc-sub">'+p.po.id+' · '+p.outstanding+' of '+p.line.quantity_ordered+' still outstanding</p>'+
         '<label style="font-size:0.8rem;">Quantity actually received</label><input id="po-recv-qty-'+p.line.id+'" type="number" step="0.01" value="'+p.outstanding+'">'+
         '<label style="font-size:0.8rem;">Stock into</label><select id="po-recv-site-'+p.line.id+'">'+storeOptions+'</select>'+
-        '<button class="secondary btn-sm" onclick="reviewPOReceive(\''+p.line.id+'\',\''+(p.line.item_name||"").replace(/'/g,"")+'\')" style="margin-top:6px;">Receive</button>'+
+        '<button class="secondary btn-sm" data-line-id="'+p.line.id+'" data-item-name="'+escapeHtml(p.line.item_name||"")+'" onclick="reviewPOReceive(this.dataset.lineId,this.dataset.itemName)" style="margin-top:6px;">Receive</button>'+
         '<div id="po-recv-review-'+p.line.id+'"></div><div id="po-recv-msg-'+p.line.id+'"></div></div></div>';
     }).join("");
   }catch(e){document.getElementById("po-receive-queue").textContent=e.message;}
@@ -2327,7 +2375,7 @@ function reviewPOReceive(lineId, itemName){
   const qty = document.getElementById("po-recv-qty-"+lineId).value;
   const siteSelect = document.getElementById("po-recv-site-"+lineId);
   const siteName = siteSelect.options[siteSelect.selectedIndex] ? siteSelect.options[siteSelect.selectedIndex].text : "-";
-  document.getElementById("po-recv-review-"+lineId).innerHTML = '<div class="card" style="background:#fff8e1;margin-top:6px;"><p><b>Confirm:</b> check the physical item matches "'+itemName+'" — receiving '+qty+' into '+siteName+'.</p>'+
+  document.getElementById("po-recv-review-"+lineId).innerHTML = '<div class="card" style="background:#fff8e1;margin-top:6px;"><p><b>Confirm:</b> check the physical item matches "'+escapeHtml(itemName)+'" — receiving '+qty+' into '+escapeHtml(siteName)+'.</p>'+
     '<button class="secondary" onclick="receivePOLineInline(\''+lineId+'\')">Yes, this is correct</button> '+
     '<button class="secondary btn-sm" onclick="document.getElementById(\'po-recv-review-'+lineId+'\').innerHTML=\'\'">Cancel</button></div>';
 }
@@ -2540,11 +2588,13 @@ async function loadSaleLineLots(lineId){
   const row = document.getElementById(lineId);
   const itemId = row.querySelector(".sale-line-item").value;
   const lotSelect = row.querySelector(".sale-line-lot");
+  const descField = row.querySelector(".sale-line-desc");
   if(!itemId){ lotSelect.innerHTML = '<option value="">-- FIFO (oldest first) --</option>'; return; }
   try{
     const item = await apiFetch("/items/"+itemId);
     lotSelect.innerHTML = '<option value="">-- FIFO (oldest first) --</option>'+
       item.lots_by_site.map(function(l){return '<option value="'+l.id+'">'+l.id+' — '+l.site_name+' ('+l.quantity_balance+' available)</option>';}).join("");
+    if(descField && !descField.value.trim()) descField.value = item.name;
   }catch(e){showError(e.message);}
 }
 let prefillFulfillsCOId = null;

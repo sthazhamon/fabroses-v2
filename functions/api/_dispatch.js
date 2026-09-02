@@ -1,12 +1,12 @@
 import { nextId } from "./_ledger.js";
 import { reconcileMaterialIssue, resolveOrigin } from "./_bom.js";
 
-export async function createDispatch(env, { dispatch_type, from_site_id, to_site_id, items, related_work_order_id, related_customer_order_id, related_purchase_order_id }) {
+export async function createDispatch(env, { dispatch_type, from_site_id, to_site_id, items, related_work_order_id, related_customer_order_id, related_purchase_order_id, related_sale_id }) {
   const id = await nextId(env, "dispatches", "DSP");
   await env.DB.prepare(
-    `INSERT INTO dispatches (id, dispatch_type, from_site_id, to_site_id, related_work_order_id, related_customer_order_id, related_purchase_order_id, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_pick')`
-  ).bind(id, dispatch_type, from_site_id || null, to_site_id || null, related_work_order_id || null, related_customer_order_id || null, related_purchase_order_id || null).run();
+    `INSERT INTO dispatches (id, dispatch_type, from_site_id, to_site_id, related_work_order_id, related_customer_order_id, related_purchase_order_id, related_sale_id, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_pick')`
+  ).bind(id, dispatch_type, from_site_id || null, to_site_id || null, related_work_order_id || null, related_customer_order_id || null, related_purchase_order_id || null, related_sale_id || null).run();
 
   for (const item of items) {
     await env.DB.prepare("INSERT INTO dispatch_items (dispatch_id, item_id, lot_id, expected_quantity) VALUES (?, ?, ?, ?)")
@@ -69,6 +69,7 @@ export async function shipDispatch(env, dispatchId, { courier, tracking_id }, ac
 export async function confirmReceive(env, dispatchId, itemConfirmations, actorName, extra) {
   const dispatch = await env.DB.prepare("SELECT * FROM dispatches WHERE id = ?").bind(dispatchId).first();
   if (!dispatch) return { error: "Dispatch not found" };
+  if (dispatch.status === "received") return { error: "This was already received — nothing further to do here. If you're seeing this after clicking Confirm, the receipt already went through the first time.", already_done: true };
   if (dispatch.status !== "shipped") return { error: "This dispatch hasn't been shipped yet — nothing to receive" };
   if (dispatch.dispatch_type === "customer_shipment") return { error: "Customer shipments finish at the ship step — there's no separate receipt to confirm here." };
 
@@ -169,10 +170,21 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
     const newLotId = await nextId(env, "item_lots", "LOT");
     const originForTransfer = await resolveOrigin(env, item.lot_id);
     createdLotIds.push({ lot_id: newLotId, item_id: item.item_id, resolved_origin: originForTransfer || newLotId });
+    // Carry the source lot's cost forward, prorated by how much actually
+    // moved - otherwise cost silently vanishes every time material
+    // physically transfers between sites, even when the source lot had a
+    // real, correct cost recorded.
+    let transferredCostTotal = null;
+    if (item.lot_id) {
+      const sourceLot = await env.DB.prepare("SELECT cost_total, quantity_original FROM item_lots WHERE id = ?").bind(item.lot_id).first();
+      if (sourceLot && sourceLot.cost_total != null && sourceLot.quantity_original) {
+        transferredCostTotal = (sourceLot.cost_total / sourceLot.quantity_original) * conf.received_quantity;
+      }
+    }
     await env.DB.prepare(
-      `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, origin_lot_id, notes)
-       VALUES (?, ?, ?, ?, ?, 'transfer_in', ?, ?, ?)`
-    ).bind(newLotId, item.item_id, dispatch.to_site_id, conf.received_quantity, conf.received_quantity, dispatchId, originForTransfer, `Received via dispatch ${dispatchId}`).run();
+      `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, origin_lot_id, cost_total, notes)
+       VALUES (?, ?, ?, ?, ?, 'transfer_in', ?, ?, ?, ?)`
+    ).bind(newLotId, item.item_id, dispatch.to_site_id, conf.received_quantity, conf.received_quantity, dispatchId, originForTransfer, transferredCostTotal, `Received via dispatch ${dispatchId}`).run();
     await env.DB.prepare(
       `INSERT INTO item_movements (lot_id, item_id, event_type, to_site_id, quantity, work_order_id, dispatch_id, notes, created_by)
        VALUES (?, ?, 'transferred_in', ?, ?, ?, ?, ?, ?)`

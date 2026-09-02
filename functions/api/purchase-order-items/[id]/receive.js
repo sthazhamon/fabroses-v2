@@ -24,10 +24,16 @@ export async function onRequestPost({ request, env, params }) {
   }
 
   const lotId = await nextId(env, "item_lots", "LOT");
+  // Every lot needs a real cost basis from the moment it exists, or COGS
+  // silently computes to zero for anything made from it. Default to the
+  // PO's own agreed rate - known at receipt time, well before any supplier
+  // bill might arrive - and let an explicitly-passed cost_total override it
+  // if the caller has something more specific.
+  const effectiveCostTotal = cost_total != null ? cost_total : (line.rate != null ? line.rate * quantity_received : null);
   await env.DB.prepare(
     `INSERT INTO item_lots (id, item_id, site_id, quantity_original, quantity_balance, source_type, source_reference, cost_total, notes)
      VALUES (?, ?, ?, ?, ?, 'purchase_order', ?, ?, ?)`
-  ).bind(lotId, line.item_id, storeSiteId, quantity_received, quantity_received, line.purchase_order_id, cost_total || null, notes || null).run();
+  ).bind(lotId, line.item_id, storeSiteId, quantity_received, quantity_received, line.purchase_order_id, effectiveCostTotal, notes || null).run();
 
   await env.DB.prepare("INSERT INTO item_movements (lot_id, item_id, event_type, to_site_id, quantity, notes) VALUES (?, ?, 'received', ?, ?, ?)")
     .bind(lotId, line.item_id, storeSiteId, quantity_received, `Received against PO line ${params.id}`).run();

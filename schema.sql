@@ -175,6 +175,7 @@ CREATE TABLE dispatches (
   from_site_id TEXT REFERENCES sites(id),
   to_site_id TEXT REFERENCES sites(id),
   related_customer_order_id TEXT,
+  related_sale_id TEXT,
   related_work_order_id TEXT,
   related_purchase_order_id TEXT,
   status TEXT DEFAULT 'pending_pick',
