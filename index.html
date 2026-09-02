@@ -762,13 +762,14 @@ function attachSearchFilter(selectId, allOptions, renderOptionFn, blankLabel){
     }).join("");
     resultsList.style.display = "block";
     resultsList.querySelectorAll(".filter-result-row").forEach(function(row){
-      row.onclick = function(){
+      row.addEventListener("mousedown", function(e){
+        e.preventDefault();
         const chosen = allOptions.find(function(o){return String(o.id)===row.dataset.id;});
         sel.value = row.dataset.id;
         sel.dispatchEvent(new Event("change"));
         textInput.value = chosen ? optionLabel(chosen) : "";
         resultsList.style.display = "none";
-      };
+      });
     });
   }
 
@@ -1213,7 +1214,7 @@ async function loadStockBySite(){
             '<span class="muted" style="flex:2;font-size:0.8rem;">Received: '+(l.created_at||"-").slice(0,10)+'</span>'+
             '<input id="lotqty-'+l.id+'" type="number" step="0.1" value="'+l.quantity_balance+'" style="flex:1;">'+
             '<button class="secondary btn-sm" onclick="saveLotQty(\''+l.id+'\')">Save</button>'+
-            '<button class="secondary btn-sm" data-qr-code="'+escapeHtml((agg.item_code||itemId)+"|"+l.resolved_origin+"|"+agg.item_name)+'" data-qr-label="'+escapeHtml(agg.item_name+" - "+l.id)+'" onclick="printQR(this.dataset.qrCode,this.dataset.qrLabel)">QR</button>'+
+            '<button class="secondary btn-sm" data-qr-code="'+escapeHtml((agg.item_code||itemId)+"|"+l.id+"|"+agg.item_name)+'" data-qr-label="'+escapeHtml(agg.item_name+" - "+l.id)+'" onclick="printQR(this.dataset.qrCode,this.dataset.qrLabel)">QR</button>'+
             '<button class="secondary btn-sm" onclick="viewLotHistory(\''+l.id+'\')">History</button></div>';}).join("")+'</td></tr>';
       }).join("");
       return '<p><b>'+entry.site.name+'</b> ('+entry.site.site_type+')</p>'+(rows?'<table><tr><th>Item</th><th>Total qty</th><th></th></tr>'+rows+'</table>':'<p class="muted">Empty</p>');
@@ -2403,8 +2404,7 @@ async function submitReceiveConfirm(dispatchId){
       let itemCode = created.item_id;
       let itemName = created.item_id;
       try{ const itemDetail = await apiFetch("/items/"+created.item_id); itemCode = itemDetail.item_code||created.item_id; itemName = itemDetail.name||created.item_id; }catch(e){}
-      const originForQR = created.resolved_origin||created.lot_id;
-      qrButtons.push('<div style="margin:4px 0;"><button class="secondary btn-sm" data-qr-code="'+escapeHtml(itemCode+"|"+originForQR+"|"+itemName)+'" data-qr-label="'+escapeHtml(itemName+" - "+originForQR)+'" onclick="printQR(this.dataset.qrCode,this.dataset.qrLabel)">Get QR — '+originForQR+'</button> '+
+      qrButtons.push('<div style="margin:4px 0;"><button class="secondary btn-sm" data-qr-code="'+escapeHtml(itemCode+"|"+created.lot_id+"|"+itemName)+'" data-qr-label="'+escapeHtml(itemName+" - "+created.lot_id)+'" onclick="printQR(this.dataset.qrCode,this.dataset.qrLabel)">Get QR — '+created.lot_id+'</button> '+
         '<button class="secondary btn-sm" onclick="voidReceipt(\''+created.lot_id+'\',\'recv-confirm-msg\')" style="color:var(--warn);border-color:var(--warn);">Wrong item — void this</button></div>');
     }
     document.getElementById("recv-confirm-msg").innerHTML='<p style="color:var(--ok);">Confirmed — stock now credited.'+(res.work_order_closed?' Work order closed.':'')+reconMsg+'</p>'+
