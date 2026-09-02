@@ -40,11 +40,21 @@ export async function onRequestGet({ env, data }) {
     `SELECT d.*, ts.name AS to_site_name FROM dispatches d LEFT JOIN sites ts ON ts.id = d.to_site_id
      WHERE d.from_site_id = ? AND d.status IN ('shipped', 'received') ORDER BY d.shipped_at DESC LIMIT 10`
   ).bind(siteId).all();
-  for (const dispatch of recentShipments) {
-    const { results: items } = await env.DB.prepare(
-      "SELECT di.*, i.name AS item_name FROM dispatch_items di LEFT JOIN items i ON i.id = di.item_id WHERE di.dispatch_id = ?"
-    ).bind(dispatch.id).all();
-    dispatch.item_summary = items.map((i) => `${i.item_name || "?"} (${i.scanned_quantity ?? i.expected_quantity})`).join(", ");
+  if (recentShipments.length) {
+    const shipmentIds = recentShipments.map((d) => d.id);
+    const placeholders = shipmentIds.map(() => "?").join(",");
+    const { results: allItems } = await env.DB.prepare(
+      `SELECT di.*, i.name AS item_name FROM dispatch_items di LEFT JOIN items i ON i.id = di.item_id WHERE di.dispatch_id IN (${placeholders})`
+    ).bind(...shipmentIds).all();
+    const itemsByDispatch = {};
+    for (const item of allItems) {
+      if (!itemsByDispatch[item.dispatch_id]) itemsByDispatch[item.dispatch_id] = [];
+      itemsByDispatch[item.dispatch_id].push(item);
+    }
+    for (const dispatch of recentShipments) {
+      const items = itemsByDispatch[dispatch.id] || [];
+      dispatch.item_summary = items.map((i) => `${i.item_name || "?"} (${i.scanned_quantity ?? i.expected_quantity})`).join(", ");
+    }
   }
 
   return Response.json({ site_id: siteId, pending_orders: orders, completed_orders: completedOrders, own_stock: ownStock, incoming_to_confirm: incoming, outgoing_to_ship: outgoing, recent_shipments: recentShipments });

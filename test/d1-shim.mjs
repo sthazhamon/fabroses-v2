@@ -23,7 +23,7 @@ export function wrapD1(sqliteDb) {
         },
         async run() {
           const info = sqliteDb.prepare(sql).run(...boundArgs);
-          return { meta: { last_row_id: info.lastInsertRowid } };
+          return { meta: { last_row_id: info.lastInsertRowid, changes: info.changes } };
         },
       };
       return api;

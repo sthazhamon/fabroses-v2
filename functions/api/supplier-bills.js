@@ -2,14 +2,21 @@ import { postJournalEntry, getOrCreatePartyAccount, accountFixedId, nextId } fro
 
 export async function onRequestGet({ env }) {
   const { results: bills } = await env.DB.prepare("SELECT * FROM supplier_bills ORDER BY bill_date DESC, id DESC").all();
-  const withLines = [];
-  for (const bill of bills) {
-    const { results: lines } = await env.DB.prepare(
-      "SELECT sbi.*, i.name AS item_name FROM supplier_bill_items sbi LEFT JOIN items i ON i.id = sbi.item_id WHERE sbi.supplier_bill_id = ?"
-    ).bind(bill.id).all();
-    withLines.push({ ...bill, lines });
+  if (!bills.length) return Response.json([]);
+
+  const billIds = bills.map((b) => b.id);
+  const placeholders = billIds.map(() => "?").join(",");
+  const { results: allLines } = await env.DB.prepare(
+    `SELECT sbi.*, i.name AS item_name FROM supplier_bill_items sbi LEFT JOIN items i ON i.id = sbi.item_id WHERE sbi.supplier_bill_id IN (${placeholders})`
+  ).bind(...billIds).all();
+
+  const linesByBill = {};
+  for (const line of allLines) {
+    if (!linesByBill[line.supplier_bill_id]) linesByBill[line.supplier_bill_id] = [];
+    linesByBill[line.supplier_bill_id].push(line);
   }
-  return Response.json(withLines);
+
+  return Response.json(bills.map((bill) => ({ ...bill, lines: linesByBill[bill.id] || [] })));
 }
 
 export async function onRequestPost({ request, env, data }) {

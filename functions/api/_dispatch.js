@@ -18,7 +18,20 @@ export async function createDispatch(env, { dispatch_type, from_site_id, to_site
 export async function confirmPick(env, dispatchId, { item_id, lot_id, scanned_quantity }) {
   const { results: pending } = await env.DB.prepare("SELECT * FROM dispatch_items WHERE dispatch_id = ? AND scanned_quantity IS NULL").bind(dispatchId).all();
   if (!pending.length) return { error: "Nothing left to pick on this dispatch" };
-  const match = pending.find((p) => p.item_id === item_id && (!lot_id || p.lot_id === lot_id || !p.lot_id));
+
+  // A QR is printed once and encodes the material's stable origin, which
+  // survives every future site-to-site transfer even though lot_id itself
+  // changes on each move. So a scanned lot that exactly matches wins
+  // immediately; otherwise, fall back to comparing origins before giving up.
+  const scannedOrigin = lot_id ? await resolveOrigin(env, lot_id) : null;
+  let match = pending.find((p) => p.item_id === item_id && (!lot_id || p.lot_id === lot_id || !p.lot_id));
+  if (!match && lot_id && scannedOrigin) {
+    for (const p of pending) {
+      if (p.item_id !== item_id || !p.lot_id) continue;
+      const candidateOrigin = await resolveOrigin(env, p.lot_id);
+      if (candidateOrigin && candidateOrigin === scannedOrigin) { match = p; break; }
+    }
+  }
   if (!match) return { mismatch: true, error: "Scanned item does not match anything expected on this dispatch" };
 
   const mismatchQty = scanned_quantity !== match.expected_quantity;
@@ -86,7 +99,15 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
       return { error: "Scanned item doesn't match what's expected on this dispatch", mismatch: true };
     }
     if (conf.scanned_lot_id && item.lot_id && item.lot_id !== conf.scanned_lot_id) {
-      return { error: "Scanned lot doesn't match what's expected on this dispatch", mismatch: true };
+      // A QR is printed once and encodes the material's stable origin,
+      // which survives every future site-to-site transfer even though the
+      // lot_id itself changes on each move. So an exact lot_id mismatch
+      // isn't necessarily wrong - it's only a real mismatch if the two
+      // lots don't even share the same origin.
+      const [expectedOrigin, scannedOrigin] = await Promise.all([resolveOrigin(env, item.lot_id), resolveOrigin(env, conf.scanned_lot_id)]);
+      if (!expectedOrigin || !scannedOrigin || expectedOrigin !== scannedOrigin) {
+        return { error: "Scanned lot doesn't match what's expected on this dispatch", mismatch: true };
+      }
     }
   }
 

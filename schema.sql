@@ -634,3 +634,38 @@ CREATE TABLE system_settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- ============================================================
+-- Additional indexes on frequently-queried foreign-key columns
+-- across the app's core transactional tables. Without these,
+-- SQLite/D1 has to full-scan the table for every WHERE lookup
+-- on these columns - fine at dozens of rows, genuinely slow once
+-- these tables grow into the thousands, which every one of them
+-- will over the life of the business. Confirmed each of these
+-- against actual, real query patterns already in the codebase,
+-- not added speculatively.
+-- ============================================================
+CREATE INDEX idx_sale_items_sale ON sale_items(sale_id);
+CREATE INDEX idx_dispatch_items_dispatch ON dispatch_items(dispatch_id);
+CREATE INDEX idx_co_items_co ON customer_order_items(customer_order_id);
+CREATE INDEX idx_po_items_po ON purchase_order_items(purchase_order_id);
+CREATE INDEX idx_material_issues_wo ON material_issues(work_order_id);
+CREATE INDEX idx_sales_customer_party ON sales(customer_party_id);
+CREATE INDEX idx_co_customer_party ON customer_orders(customer_party_id);
+CREATE INDEX idx_lots_source_reference ON item_lots(source_reference);
+CREATE INDEX idx_refunds_sale ON refunds(sale_id);
+CREATE INDEX idx_sale_returns_sale_item ON sale_returns(sale_item_id);
+CREATE INDEX idx_dispatch_tracking_dispatch ON dispatch_tracking_notes(dispatch_id);
+CREATE INDEX idx_rework_issues_wo ON rework_issues(work_order_id);
+CREATE INDEX idx_rework_return_events_issue ON rework_return_events(rework_issue_id);
+CREATE INDEX idx_material_return_events_issue ON material_return_events(material_issue_id);
+CREATE INDEX idx_supplier_bill_items_bill ON supplier_bill_items(supplier_bill_id);
+CREATE INDEX idx_payment_allocations_payment ON payment_allocations(payment_id);
+CREATE INDEX idx_worker_payments_wo ON worker_payments(work_order_id);
+CREATE INDEX idx_worker_payments_site ON worker_payments(worker_site_id);
+CREATE INDEX idx_stage_log_wo ON stage_log(work_order_id);
+CREATE INDEX idx_photos_entity ON photos(entity_type, entity_id);
+CREATE INDEX idx_dispatches_related_co ON dispatches(related_customer_order_id);
+CREATE INDEX idx_dispatches_related_sale ON dispatches(related_sale_id);
+CREATE INDEX idx_item_photos_item ON item_photos(item_id);
+CREATE INDEX idx_lots_item_site ON item_lots(item_id, site_id);

@@ -11,9 +11,24 @@ export async function onRequestPost({ request, env, params }) {
   const line = await env.DB.prepare("SELECT * FROM purchase_order_items WHERE id = ?").bind(params.id).first();
   if (!line) return Response.json({ error: "Purchase order line not found" }, { status: 404 });
 
-  const totalReceived = line.quantity_received + quantity_received;
-  if (totalReceived > line.quantity_ordered) {
-    return Response.json({ error: `Only ${line.quantity_ordered - line.quantity_received} still outstanding on this line` }, { status: 400 });
+  // The check and the write happen in ONE atomic statement, not a separate
+  // read-then-decide-then-write sequence. A read-then-write here is a real
+  // race: two nearly-simultaneous requests (e.g. a slow first request that
+  // outlasts the frontend's own double-click cooldown) could both read the
+  // same not-yet-updated quantity_received, both see room to receive, and
+  // both succeed - silently double-receiving the same line despite the
+  // earlier validation looking correct in isolation. Building the
+  // condition into the WHERE clause makes SQL itself the single point of
+  // truth: only one of two overlapping requests can actually change the row.
+  const provisionalTotal = line.quantity_received + quantity_received;
+  const provisionalStatus = provisionalTotal >= line.quantity_ordered ? "received" : "partially_received";
+  const updateResult = await env.DB.prepare(
+    "UPDATE purchase_order_items SET quantity_received = quantity_received + ?, status = ? WHERE id = ? AND quantity_received + ? <= quantity_ordered"
+  ).bind(quantity_received, provisionalStatus, params.id, quantity_received).run();
+
+  if (!updateResult.meta.changes) {
+    const current = await env.DB.prepare("SELECT quantity_received, quantity_ordered FROM purchase_order_items WHERE id = ?").bind(params.id).first();
+    return Response.json({ error: `Only ${current.quantity_ordered - current.quantity_received} still outstanding on this line` }, { status: 400 });
   }
 
   let storeSiteId = site_id;
@@ -38,8 +53,5 @@ export async function onRequestPost({ request, env, params }) {
   await env.DB.prepare("INSERT INTO item_movements (lot_id, item_id, event_type, to_site_id, quantity, notes) VALUES (?, ?, 'received', ?, ?, ?)")
     .bind(lotId, line.item_id, storeSiteId, quantity_received, `Received against PO line ${params.id}`).run();
 
-  const newStatus = totalReceived >= line.quantity_ordered ? "received" : "partially_received";
-  await env.DB.prepare("UPDATE purchase_order_items SET quantity_received = ?, status = ? WHERE id = ?").bind(totalReceived, newStatus, params.id).run();
-
-  return Response.json({ lot_id: lotId, line_status: newStatus });
+  return Response.json({ lot_id: lotId, line_status: provisionalStatus });
 }

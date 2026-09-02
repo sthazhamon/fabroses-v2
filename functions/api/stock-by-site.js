@@ -14,6 +14,7 @@ export async function onRequestGet({ env }) {
   const bySite = {};
   for (const site of sites) bySite[site.id] = { site, lots: [] };
   for (const lot of lots) {
+    lot.resolved_origin = lot.origin_lot_id || lot.id;
     if (bySite[lot.site_id]) bySite[lot.site_id].lots.push(lot);
   }
 

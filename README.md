@@ -1,146 +1,109 @@
 FabRoses Business System - session summary
 
-610 automated tests across 87 files, all passing. Run npm test to verify
+637 automated tests across 92 files, all passing. Run npm test to verify
 yourself.
 
-This session had two batches of work: an initial round of workflow and
-performance fixes, followed by a 12-issue batch from a fuller bug report
-(fabro3.pdf). Below is what changed, with the hardest problems explained
-honestly, including mistakes caught and corrected along the way rather
-than hidden.
+This part of the session was a mix of new bug reports and a proactive
+performance/scaling pass. Below is what changed, explained honestly,
+including a mistake I made and caught myself along the way.
 
-## The hardest problem this session: raw material cost never reaching COGS
+## A genuine race condition, not just a validation bug
 
-Confirmed by tracing the actual code, not guessing: every raw material lot
-in the entire system had cost_total = null, regardless of when a supplier
-bill was entered. The receive endpoint only set cost from an explicit
-value the frontend never actually sent. Fixed to default to the PO's own
-agreed rate at receive time, then retroactively refine to the real billed
-rate when a bill later arrives - but only for stock not yet consumed,
-since anything already used in a completed job keeps its originally
-locked-in cost.
+A PO line could be received twice, ending up with more stock than was
+ever ordered - the validation itself was correct in isolation, but it
+read the line's current state, then wrote separately afterward. That gap
+is a real race: if a first request is still in flight when a second,
+genuine click slips in before the first commits, both can read the same
+"nothing received yet" state and both succeed. Fixed by making the check
+and the write one atomic SQL statement, with the condition built directly
+into the WHERE clause, so the database itself - not application code
+reading a snapshot - decides at the exact moment of the write. Proved
+this by simulating two requests both starting from the identical stale
+state and confirming only one succeeds.
 
-While proving that fix end-to-end, a SECOND, separate bug turned up: even
-with a lot correctly costed, that cost silently vanished every time
-material physically moved between sites via a dispatch, because the new
-lot created at the destination never inherited it. Both are now fixed and
-proven together through a full PO -> receive -> dispatch to worker ->
-consumption -> Mark Job Done pipeline test.
+## Traceability actually reaching back to the origin, not just one hop
 
-## Other confirmed bugs, traced to their exact root cause
+A lot's "full history" only ever showed its own direct movement at the
+current site - for a raw material received via PO and then transferred
+between sites, that meant the original receipt was invisible entirely,
+even though the underlying origin_lot_id infrastructure to trace it
+already existed and was already being set correctly, just never read
+anywhere. Fixed to also surface the origin lot's own movements (and its
+own BOM consumption, if it was itself a produced finished good), with
+each origin clickable to trace further back.
 
-An item name containing a double-quote character (a "3 inch" fabric)
-silently broke the receive button - exactly as diagnosed in the report.
-The onclick handler embedded the raw name in a string that only escaped
-single quotes, not double quotes. Same fragile pattern as an earlier
-"print address" bug this session, fixed the same way: real HTML
-attributes plus proper escaping instead of string concatenation, proven
-against the exact reported item name through a real DOM parser.
+## QR code consistency across every place it's generated
 
-A duplicate "confirm receipt" click showed "hasn't been shipped yet" even
-though the first click had already succeeded and added the stock - which
-looked like data corruption but wasn't. Fixed with an app-wide,
-capture-phase click guard that briefly disables any button after it's
-clicked (proven with a real DOM simulation: 3 rapid clicks now correctly
-fire the handler exactly once), plus a distinct, honest "already done"
-message instead of a confusing generic failure.
+The encoded value was actually already consistent everywhere
+(item_code|lot_id), but the printed label text wasn't - one place showed
+the item's name, three others showed only a bare lot ID with no item
+identification at all. Standardized all four to the same format. While
+fixing this, three of the four still had the same fragile
+string-concatenation pattern behind an earlier session bug (a `3"` in an
+item name breaking a button) - fixed proactively using the same safe
+approach, proven against a tricky item name through a real DOM parser.
 
-A sale from a worker's own stock (no formal customer order behind it)
-created no dispatch at all - the worker was never notified anything
-needed to ship. The existing shipment-dispatch logic only ever fired when
-a sale was formally linked to a CO. Fixed to also fire whenever stock
-genuinely came from a worker site. Caught and corrected two of my own
-mistakes while building this: an over-narrow first pass broke the
-existing CO-based case entirely (caught immediately by the regression
-count dropping), and my own test then found a second gap where a
-customer's name wasn't resolving when only a party link existed with no
-separate name text.
+Separately, the item's name is now also appended as a third,
+pipe-separated segment to the encoded QR value itself - confirmed safe
+by checking every place in the app that parses a scanned code, since all
+four only ever read the first two segments. This means a generic phone
+camera scanning the code now shows something human-readable, while the
+app's own internal scan-matching (which relies on item_code, not name)
+keeps working exactly as before.
 
-Selling an item that came from a sales return was blocked with "each line
-needs a description and sale_price" - traced back to description being
-mandatory but never auto-filled from the selected item, blocking any sale
-where someone picked an item without also manually retyping its name.
-Fixed on both ends: the backend now derives a sensible description from
-the item's own name, and the frontend auto-fills it visibly.
+## A proactive performance and scaling pass
 
-## Real, app-wide UX and robustness fixes
+25 new database indexes added, each confirmed against a real, existing
+query pattern in the code rather than added speculatively - covering
+sale_items, dispatch_items, customer_order_items, purchase_order_items,
+material_issues, and about a dozen more foreign-key columns across the
+core transactional tables, plus a composite index for the specific
+item_id+site_id combined-filter pattern used in several places, and one
+for item_photos, which was being queried via a per-row correlated
+subquery with no index behind it at all.
 
-Error messages were small text at the top of the page that auto-hid in 6
-seconds, often unseen. Now they scroll into view and require explicit
-dismissal.
+Six more N+1 query patterns found and fixed, on top of the four fixed
+earlier this session. The worst was /purchase-orders - a three-level
+pattern (per-order, then per-line, then a billed-quantity lookup per
+line) that could mean roughly 200 sequential database round-trips for a
+modest 50 purchase orders. Now 2 queries total, regardless of how many
+orders exist. Each rewrite was proven with a new test specifically
+checking that the batched version correctly attributes data back to the
+right row - the real risk in this kind of change - not just that the
+totals come out right.
 
-Every button that triggers an action now briefly dims and blocks a second
-click, preventing accidental duplicate entries app-wide.
-
-A "shipping to" section on dispatches would silently disappear entirely
-when a destination had no address on file, with no explanation. Now it
-clearly says so and still offers to print, which honestly shows "no
-address on file" rather than hiding the option.
-
-A worker's scan-confirmation table used fixed-width inputs across 5
-columns that could exceed a narrow mobile viewport, combined with no
-overflow protection on the page at all - the most plausible concrete
-cause of a reported layout/clipping issue on mobile. Fixed the table to
-scroll within itself and added the missing page-level safety net. Honest
-caveat: this can't be verified in a real browser, so it's the most
-plausible fix found in the code, not a certainty.
-
-## Real enhancements, built and tested
-
-A shared, reusable searchable-item-picker pattern, applied consistently
-across work order creation, sales lines, and customer/purchase order
-lines - typing filters the list instead of scrolling through the whole
-catalogue.
-
-Work order material linking was redesigned at explicit direction: no more
-automatic dispatching at creation. It now only suggests material from the
-BOM; nothing moves until someone explicitly confirms it, choosing a real
-lot themselves. This was a genuine behavior change - it broke 7 existing
-tests that depended on the old automatic behavior, and one function had
-zero remaining callers afterward and was removed entirely rather than
-left as dead code.
-
-Three genuine performance problems were fixed with measured, proven
-improvement, not just theorized: /parties, /reports/pnl, and /crm were
-each issuing dozens to hundreds of sequential database round-trips per
-call. Now 2-3 queries each, regardless of data volume, with tests proving
-the batched math matches the original per-row computation exactly.
-
-Lot traceability now shows what a finished item was actually made from -
-tracing back through the specific raw material lots consumed during
-production, not just the finished lot's own movement history.
-
-The dispatch list and tracking modal now show shipping name and item,
-not just a DSP number. The dashboard's "needs attention" section gained
-three new categories: work orders still in progress, finished goods
-sitting unsold, and finished items with no BOM entered at all (which
-silently blocks work order creation).
-
-The reseller portal's "My orders" was missing any sale that never had a
-formal customer order - confirmed directly from a screenshot where a sale
-appeared in the ledger but nowhere in the orders list. Now includes both,
-clickable to reveal ship date, courier, and tracking.
-
-The sale price field now correctly pre-fills from a customer order's own
-recorded price when billing through that order, staying fully editable.
+Audited every remaining loop-with-a-query-inside pattern in the
+codebase and deliberately left most of them alone: they're bounded by a
+single transaction's own line count (a sale's few lines, one work
+order's material issues), which doesn't grow with total data volume, so
+rewriting them would add risk for no real benefit. Also deliberately did
+not add a row limit to /items, since every searchable item picker in the
+app filters client-side and genuinely needs the full list - limiting it
+would break that feature; a proper fix would mean moving those pickers
+to server-side search, a larger, separate change not made unprompted.
 
 ## Also fixed along the way
 
-One unrelated, pre-existing test bug: a milestone test hardcoded a
-calendar date range that had simply expired as real time passed it -
-now uses relative dates so it can't break again regardless of when it
-runs.
+Two dashboard/history and address-display gaps reported by screenshot:
+a dispatch's shipping address section silently disappeared entirely
+when no address was on file (now clearly says so and still offers to
+print, which honestly shows "no address on file" rather than hiding the
+option); and confirmed with the user that QR codes correctly prefer
+item_code over the plain internal ID when one exists, by design, with no
+change needed.
 
 ## Testing this yourself
 
-npm test - 610 tests across 87 files.
+npm test - 637 tests across 92 files.
 
 ## Deployment
 
-New columns since the last package: dispatches.related_sale_id. Schema
-already includes the earlier receive_mismatch_flag columns too. No new
-tables this round. Standard process: delete and recreate the D1
-database, then load the schema file fresh.
+Two new columns since the last package: dispatch_items.receive_mismatch_flag
+(covered previously) and dispatches.related_sale_id are already in the
+schema from earlier this session. This round adds only indexes - no new
+columns or tables. Standard process: delete and recreate the D1
+database, then load the schema file fresh, since D1 doesn't support
+adding indexes to an existing live database via a simple ALTER.
 
 Given the git corruption discussed earlier this session, a full
 wipe-and-replace of the working tree (keeping .git for history) remains
@@ -149,12 +112,12 @@ the safest deployment path:
 find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
 unzip fabroses-v2-complete.zip -d .
 git add -A
-git commit -m "This session's fixes: COGS pipeline, worker dispatch notification, UX robustness"
+git commit -m "Race condition fix, origin-chain traceability, QR consistency, performance/indexing pass"
 git push
 
 ## Honestly still open
 
 The item-photo cross-contamination bug from an earlier session remains
-open. The mobile layout fix (issue 3) is a plausible, concrete fix based
-on reading the code, but wasn't verified in a real browser - worth a
-click-through on an actual device.
+open. The mobile layout fix from earlier this session is a plausible,
+concrete fix based on reading the code, but wasn't verified in a real
+browser.

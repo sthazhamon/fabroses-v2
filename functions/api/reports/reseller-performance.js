@@ -7,13 +7,21 @@ export async function onRequestGet({ request, env }) {
 
   const { results: resellers } = await env.DB.prepare("SELECT * FROM parties WHERE type = 'reseller'").all();
 
+  const salesByReseller = {};
+  if (resellers.length) {
+    const resellerIds = resellers.map((r) => r.id);
+    const placeholders = resellerIds.map(() => "?").join(",");
+    const { results: salesRows } = await env.DB.prepare(
+      `SELECT customer_party_id, COALESCE(SUM(total_amount),0) AS total, COUNT(*) AS count FROM sales
+       WHERE customer_party_id IN (${placeholders}) AND date(sale_date) >= date('now', ?)
+       GROUP BY customer_party_id`
+    ).bind(...resellerIds, `-${days} days`).all();
+    for (const row of salesRows) salesByReseller[row.customer_party_id] = row;
+  }
+
   const report = [];
   for (const reseller of resellers) {
-    const salesRow = await env.DB.prepare(
-      `SELECT COALESCE(SUM(total_amount),0) AS total, COUNT(*) AS count FROM sales
-       WHERE customer_party_id = ? AND date(sale_date) >= date('now', ?)`
-    ).bind(reseller.id, `-${days} days`).first();
-
+    const salesRow = salesByReseller[reseller.id] || { total: 0, count: 0 };
     const targetMet = reseller.target_amount ? salesRow.total >= reseller.target_amount : null;
 
     report.push({

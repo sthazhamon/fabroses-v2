@@ -25,15 +25,35 @@ export async function onRequestGet({ request, env }) {
   const whereClause = conditions.length ? "WHERE " + conditions.join(" AND ") : "";
 
   const { results: orders } = await env.DB.prepare(`SELECT * FROM purchase_orders ${whereClause} ORDER BY created_at DESC`).bind(...params).all();
+
+  if (!orders.length) return Response.json([]);
+
+  const poIds = orders.map((po) => po.id);
+  const poPlaceholders = poIds.map(() => "?").join(",");
+  const { results: allItems } = await env.DB.prepare(
+    `SELECT poi.*, i.name AS item_name FROM purchase_order_items poi LEFT JOIN items i ON i.id = poi.item_id WHERE poi.purchase_order_id IN (${poPlaceholders})`
+  ).bind(...poIds).all();
+
+  const billedByLineId = {};
+  if (allItems.length) {
+    const lineIds = allItems.map((l) => l.id);
+    const linePlaceholders = lineIds.map(() => "?").join(",");
+    const { results: billedRows } = await env.DB.prepare(
+      `SELECT purchase_order_item_id, COALESCE(SUM(quantity),0) AS t FROM supplier_bill_items WHERE purchase_order_item_id IN (${linePlaceholders}) GROUP BY purchase_order_item_id`
+    ).bind(...lineIds).all();
+    for (const row of billedRows) billedByLineId[row.purchase_order_item_id] = row.t;
+  }
+
+  const itemsByPo = {};
+  for (const line of allItems) {
+    line.quantity_billed = billedByLineId[line.id] || 0;
+    if (!itemsByPo[line.purchase_order_id]) itemsByPo[line.purchase_order_id] = [];
+    itemsByPo[line.purchase_order_id].push(line);
+  }
+
   const withItems = [];
   for (const po of orders) {
-    const { results: items } = await env.DB.prepare(
-      `SELECT poi.*, i.name AS item_name FROM purchase_order_items poi LEFT JOIN items i ON i.id = poi.item_id WHERE poi.purchase_order_id = ?`
-    ).bind(po.id).all();
-    for (const line of items) {
-      const billedRow = await env.DB.prepare("SELECT COALESCE(SUM(quantity),0) AS t FROM supplier_bill_items WHERE purchase_order_item_id = ?").bind(line.id).first();
-      line.quantity_billed = billedRow.t;
-    }
+    const items = itemsByPo[po.id] || [];
     const trueStatus = deriveStatus(items);
     // The raw stored status column never actually reflects real state (it's
     // only ever computed at read time), so "open vs closed" must be judged

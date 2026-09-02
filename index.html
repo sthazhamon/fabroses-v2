@@ -1178,7 +1178,7 @@ async function loadStockBySite(){
             '<span class="muted" style="flex:2;font-size:0.8rem;">Received: '+(l.created_at||"-").slice(0,10)+'</span>'+
             '<input id="lotqty-'+l.id+'" type="number" step="0.1" value="'+l.quantity_balance+'" style="flex:1;">'+
             '<button class="secondary btn-sm" onclick="saveLotQty(\''+l.id+'\')">Save</button>'+
-            '<button class="secondary btn-sm" onclick=\'printQR("'+(agg.item_code||itemId)+"|"+l.id+'","'+agg.item_name.replace(/'/g,"")+" - "+l.id+'")\'>QR</button>'+
+            '<button class="secondary btn-sm" data-qr-code="'+escapeHtml((agg.item_code||itemId)+"|"+l.resolved_origin+"|"+agg.item_name)+'" data-qr-label="'+escapeHtml(agg.item_name+" - "+l.id)+'" onclick="printQR(this.dataset.qrCode,this.dataset.qrLabel)">QR</button>'+
             '<button class="secondary btn-sm" onclick="viewLotHistory(\''+l.id+'\')">History</button></div>';}).join("")+'</td></tr>';
       }).join("");
       return '<p><b>'+entry.site.name+'</b> ('+entry.site.site_type+')</p>'+(rows?'<table><tr><th>Item</th><th>Total qty</th><th></th></tr>'+rows+'</table>':'<p class="muted">Empty</p>');
@@ -1273,6 +1273,24 @@ async function viewLotHistory(lotId){
         '<p class="lc-title">'+escapeHtml(c.item_name||c.lot_id)+' ('+(c.item_code||"-")+')</p>'+
         '<p class="lc-sub">'+c.quantity+' consumed from '+c.lot_id+' · click to trace this raw material further</p></div></div>';
     }).join("");
+    let originSection = "";
+    if(h.origin_history){
+      const oh = h.origin_history;
+      const originRows = oh.movements.map(function(m){
+        let line = m.event_type;
+        if(m.from_site_name||m.to_site_name) line += ": "+(m.from_site_name||"-")+" → "+(m.to_site_name||"-");
+        return '<tr><td>'+m.created_at+'</td><td>'+line+'</td><td>'+m.quantity+'</td><td>'+(m.created_by||"-")+'</td></tr>';
+      }).join("");
+      const originBomRows = (oh.bom_consumption||[]).map(function(c){
+        return '<div class="list-card" style="cursor:pointer;" onclick="viewLotHistory(\''+c.lot_id+'\')"><div class="lc-body">'+
+          '<p class="lc-title">'+escapeHtml(c.item_name||c.lot_id)+' ('+(c.item_code||"-")+')</p>'+
+          '<p class="lc-sub">'+c.quantity+' consumed from '+c.lot_id+'</p></div></div>';
+      }).join("");
+      originSection = '<h4 style="cursor:pointer;" onclick="viewLotHistory(\''+oh.lot.id+'\')">Originally — '+oh.lot.id+' <span class="muted" style="font-size:0.8rem;">(click to open)</span></h4>'+
+        '<p class="muted">'+escapeHtml(oh.lot.item_name||"")+'</p>'+
+        (originRows?'<table><tr><th>When</th><th>Event</th><th>Qty</th><th>By</th></tr>'+originRows+'</table>':'')+
+        (originBomRows?'<p class="muted" style="margin:6px 0 2px;">Made from:</p>'+originBomRows:'');
+    }
     const overlay = document.createElement("div");
     overlay.className = "lot-history-overlay";
     overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9998;display:flex;align-items:center;justify-content:center;";
@@ -1281,6 +1299,7 @@ async function viewLotHistory(lotId){
       '<p class="muted">'+h.lot.item_name+' ('+(h.lot.item_code||h.lot.item_id)+')</p>'+
       (rows?'<table><tr><th>When</th><th>Event</th><th>Qty</th><th>By</th></tr>'+rows+'</table>':'<p class="muted">No movements recorded.</p>')+
       (bomRows?'<h4>Made from</h4>'+bomRows:'')+
+      originSection+
       '<button class="secondary" onclick="this.closest(\'div[style*=fixed]\').remove()">Close</button></div>';
     document.body.appendChild(overlay);
   }catch(e){showError(e.message);}
@@ -1983,7 +2002,7 @@ async function confirmMyIncoming(dispatchId){
     const rows = d.items.map(function(it){return '<tr><td>'+it.item_name+' (expects '+(it.item_code||it.item_id)+(it.lot_id?' / '+it.lot_id:'')+')</td><td>'+it.scanned_quantity+'</td>'+
       '<td><input id="myrecv-item-'+it.id+'" placeholder="Scanned item ID" style="width:110px;"></td>'+
       '<td><input id="myrecv-lot-'+it.id+'" placeholder="Scanned lot ID" style="width:110px;"></td>'+
-      '<td><button type="button" class="secondary btn-sm" onclick="openScanner(function(code){ const parts=code.split(\'|\'); document.getElementById(\'myrecv-item-'+it.id+'\').value=parts[0]||code; if(parts[1]) document.getElementById(\'myrecv-lot-'+it.id+'\').value=parts[1]; })">Scan</button></td></tr>';}).join("");
+      '<td><button type="button" class="secondary btn-sm" onclick="scanAndFillMyRecv(\''+it.id+'\')">Scan</button></td></tr>';}).join("");
     document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+d.id+'</div><p class="muted">Scan or enter each item to confirm you\'re receiving the right thing.</p>'+
       '<div style="overflow-x:auto;"><table>'+'<tr><th>Item</th><th>Qty</th><th>Item ID</th><th>Lot ID</th><th></th></tr>'+rows+'</table></div>'+
       '<button class="secondary" onclick="submitMyIncomingConfirm(\''+dispatchId+'\')">Confirm receipt</button><div id="myrecv-msg"></div></div>';
@@ -2200,6 +2219,17 @@ async function scanAndFillPick(dispatchItemId){
     if(parts[1]) document.getElementById("pick-lot-"+dispatchItemId).value = parts[1];
   });
 }
+async function scanAndFillMyRecv(dispatchItemId){
+  openScanner(async function(decoded){
+    const parts = decoded.split("|");
+    let itemId = parts[0];
+    if(itemId && !itemId.startsWith("ITM-")){
+      try{ const matches = await apiFetch("/items"); const found = matches.find(function(i){return i.item_code===itemId;}); if(found) itemId = found.id; }catch(e){}
+    }
+    document.getElementById("myrecv-item-"+dispatchItemId).value = itemId||"";
+    if(parts[1]) document.getElementById("myrecv-lot-"+dispatchItemId).value = parts[1];
+  });
+}
 async function confirmPickItem(dispatchId, dispatchItemId){
   try{
     const item_id = document.getElementById("pick-item-"+dispatchItemId).value.trim();
@@ -2280,7 +2310,7 @@ async function openReceiveConfirm(dispatchId){
   try{
     const d = await apiFetch("/dispatches/"+dispatchId);
     const rows = d.items.map(function(it){return '<tr><td>'+it.item_name+' ('+(it.item_code||'-')+')</td><td>'+(it.resolved_origin||'-')+'</td><td>'+it.scanned_quantity+'</td><td><input id="recv-qty-'+it.id+'" type="number" step="0.1" value="'+it.scanned_quantity+'" style="width:80px;"></td>'+
-      (it.resolved_origin?'<td><button type="button" class="secondary btn-sm" onclick=\'printQR("'+(it.item_code||it.item_id)+"|"+it.resolved_origin+'","'+it.resolved_origin+'")\'>Get QR</button></td>':'<td></td>')+'</tr>';}).join("");
+      (it.resolved_origin?'<td><button type="button" class="secondary btn-sm" data-qr-code="'+escapeHtml((it.item_code||it.item_id)+"|"+it.resolved_origin+"|"+it.item_name)+'" data-qr-label="'+escapeHtml(it.item_name+" - "+it.resolved_origin)+'" onclick="printQR(this.dataset.qrCode,this.dataset.qrLabel)">Get QR</button></td>':'<td></td>')+'</tr>';}).join("");
     const isReturnShipment = d.dispatch_type==="return_shipment";
     let reconHtml = "";
     if(isReturnShipment && d.items.length){
@@ -2329,9 +2359,10 @@ async function submitReceiveConfirm(dispatchId){
     const qrButtons = [];
     for(const created of (res.created_lot_ids||[])){
       let itemCode = created.item_id;
-      try{ const itemDetail = await apiFetch("/items/"+created.item_id); itemCode = itemDetail.item_code||created.item_id; }catch(e){}
+      let itemName = created.item_id;
+      try{ const itemDetail = await apiFetch("/items/"+created.item_id); itemCode = itemDetail.item_code||created.item_id; itemName = itemDetail.name||created.item_id; }catch(e){}
       const originForQR = created.resolved_origin||created.lot_id;
-      qrButtons.push('<div style="margin:4px 0;"><button class="secondary btn-sm" onclick=\'printQR("'+itemCode+"|"+originForQR+'","'+originForQR+'")\'>Get QR — '+originForQR+'</button> '+
+      qrButtons.push('<div style="margin:4px 0;"><button class="secondary btn-sm" data-qr-code="'+escapeHtml(itemCode+"|"+originForQR+"|"+itemName)+'" data-qr-label="'+escapeHtml(itemName+" - "+originForQR)+'" onclick="printQR(this.dataset.qrCode,this.dataset.qrLabel)">Get QR — '+originForQR+'</button> '+
         '<button class="secondary btn-sm" onclick="voidReceipt(\''+created.lot_id+'\',\'recv-confirm-msg\')" style="color:var(--warn);border-color:var(--warn);">Wrong item — void this</button></div>');
     }
     document.getElementById("recv-confirm-msg").innerHTML='<p style="color:var(--ok);">Confirmed — stock now credited.'+(res.work_order_closed?' Work order closed.':'')+reconMsg+'</p>'+
@@ -2386,12 +2417,13 @@ async function receivePOLineInline(lineId){
     const res = await apiFetch("/purchase-order-items/"+lineId+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({quantity_received:qty,site_id:siteId})});
     document.getElementById("po-recv-review-"+lineId).innerHTML = "";
     let itemCode = res.lot_id;
+    let itemName = res.lot_id;
     try{
       const poList = await apiFetch("/purchase-orders");
-      for(const po of poList){ const match = po.items.find(function(i){return String(i.id)===String(lineId);}); if(match && match.item_id){ const itemDetail = await apiFetch("/items/"+match.item_id); itemCode = itemDetail.item_code||match.item_id; } }
+      for(const po of poList){ const match = po.items.find(function(i){return String(i.id)===String(lineId);}); if(match && match.item_id){ const itemDetail = await apiFetch("/items/"+match.item_id); itemCode = itemDetail.item_code||match.item_id; itemName = itemDetail.name||match.item_id; } }
     }catch(e){}
     document.getElementById("po-recv-msg-"+lineId).innerHTML = '<p style="color:var(--ok);">Received — lot '+res.lot_id+'.</p>'+
-      '<button class="secondary btn-sm" onclick=\'printQR("'+itemCode+"|"+res.lot_id+'","'+res.lot_id+'")\'>Get QR</button> '+
+      '<button class="secondary btn-sm" data-qr-code="'+escapeHtml(itemCode+"|"+res.lot_id+"|"+itemName)+'" data-qr-label="'+escapeHtml(itemName+" - "+res.lot_id)+'" onclick="printQR(this.dataset.qrCode,this.dataset.qrLabel)">Get QR</button> '+
       '<button class="secondary btn-sm" onclick="voidReceipt(\''+res.lot_id+'\',\'po-recv-msg-'+lineId+'\')" style="color:var(--warn);border-color:var(--warn);">Wrong item — void this</button>';
     loadPOReceiveQueue();
   }catch(e){ document.getElementById("po-recv-msg-"+lineId).innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
