@@ -375,6 +375,10 @@
       <select id="s-customer-select" onchange="applyResellerDiscount()"><option value="">-- none / cash sale --</option></select>
       <div class="card"><h4 style="margin-top:0;">Line items</h4><div id="s-lines"></div>
         <button type="button" class="secondary btn-sm" onclick="addSaleLine().then(applyResellerDiscount)">+ Add line</button></div>
+      <label><input type="checkbox" id="s-ship-checkbox" style="width:auto;" onchange="document.getElementById('s-ship-address-wrap').style.display=this.checked?'block':'none';"> This needs to be shipped/dispatched</label>
+      <div id="s-ship-address-wrap" style="display:none;">
+        <label>Shipping address</label><textarea id="s-ship-address" rows="2" placeholder="Where should this go?"></textarea>
+      </div>
       <button class="primary" onclick="createSale()">Record sale</button>
       <div id="sale-result"></div>
       <div class="card"><h4 style="margin-top:0;">Refunds</h4>
@@ -730,23 +734,54 @@ function loadTabData(tabId){
 function attachSearchFilter(selectId, allOptions, renderOptionFn, blankLabel){
   const sel = document.getElementById(selectId);
   if(!sel) return;
-  let filterInput = document.getElementById(selectId+"-filter");
-  if(!filterInput){
-    filterInput = document.createElement("input");
-    filterInput.id = selectId+"-filter";
-    filterInput.placeholder = "Type to search...";
-    filterInput.style.marginBottom = "4px";
-    sel.parentNode.insertBefore(filterInput, sel);
+  sel.innerHTML = '<option value="">'+(blankLabel||"-- none --")+'</option>' + allOptions.map(renderOptionFn).join("");
+  sel.style.display = "none";
+
+  let textInput = document.getElementById(selectId+"-filter");
+  let resultsList = document.getElementById(selectId+"-filter-results");
+  if(!textInput){
+    textInput = document.createElement("input");
+    textInput.id = selectId+"-filter";
+    textInput.placeholder = "Type to search...";
+    textInput.autocomplete = "off";
+    resultsList = document.createElement("div");
+    resultsList.id = selectId+"-filter-results";
+    resultsList.style.cssText = "position:relative;z-index:20;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);max-height:220px;overflow:auto;display:none;margin-top:-8px;margin-bottom:8px;";
+    sel.parentNode.insertBefore(textInput, sel);
+    sel.parentNode.insertBefore(resultsList, sel);
   }
-  function rebuild(query){
+
+  function optionLabel(o){ return (o.name||"")+(o.item_code?" ("+o.item_code+")":""); }
+
+  function renderResults(query){
     const q = (query||"").trim().toLowerCase();
-    const currentValue = sel.value;
     const matches = q ? allOptions.filter(function(o){return (o.name||"").toLowerCase().includes(q) || (o.item_code||"").toLowerCase().includes(q);}) : allOptions;
-    sel.innerHTML = '<option value="">'+(blankLabel||"-- none --")+'</option>' + matches.map(renderOptionFn).join("");
-    if(matches.some(function(o){return String(o.id)===String(currentValue);})) sel.value = currentValue;
+    if(!matches.length){ resultsList.innerHTML = '<div class="muted" style="padding:8px 10px;">No matches</div>'; resultsList.style.display="block"; return; }
+    resultsList.innerHTML = matches.slice(0,50).map(function(o){
+      return '<div class="filter-result-row" data-id="'+o.id+'" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--line);">'+escapeHtml(optionLabel(o))+'</div>';
+    }).join("");
+    resultsList.style.display = "block";
+    resultsList.querySelectorAll(".filter-result-row").forEach(function(row){
+      row.onclick = function(){
+        const chosen = allOptions.find(function(o){return String(o.id)===row.dataset.id;});
+        sel.value = row.dataset.id;
+        sel.dispatchEvent(new Event("change"));
+        textInput.value = chosen ? optionLabel(chosen) : "";
+        resultsList.style.display = "none";
+      };
+    });
   }
-  filterInput.oninput = function(){ rebuild(filterInput.value); };
-  rebuild("");
+
+  textInput.oninput = function(){ renderResults(textInput.value); };
+  textInput.onfocus = function(){ renderResults(textInput.value); };
+  textInput.addEventListener("blur", function(){ setTimeout(function(){ resultsList.style.display="none"; }, 150); });
+
+  // If a prefilled value already exists on the underlying select, show its
+  // label in the text input immediately.
+  if(sel.value){
+    const preselected = allOptions.find(function(o){return String(o.id)===String(sel.value);});
+    if(preselected) textInput.value = optionLabel(preselected);
+  }
 }
 async function populateItemDropdown(selectId, typeFilter){
   const q = typeFilter ? "?item_type="+typeFilter : "";
@@ -1460,7 +1495,12 @@ let prefillCustomerOrderItemId = null;
 function prefillWOFromOrder(coId, itemId, qty, lineId){
   prefillCustomerOrderId = coId;
   prefillCustomerOrderItemId = lineId;
-  if(itemId) document.getElementById("wo-intended").value = itemId;
+  if(itemId){
+    document.getElementById("wo-intended").value = itemId;
+    const matchedOption = document.getElementById("wo-intended").querySelector('option[value="'+itemId+'"]');
+    const filterInputEl = document.getElementById("wo-intended-filter");
+    if(matchedOption && filterInputEl) filterInputEl.value = matchedOption.textContent;
+  }
   document.getElementById("wo-target").value = qty;
   document.getElementById("wo-desc").value = "For order "+coId;
   window.scrollTo(0,document.body.scrollHeight/3);
@@ -1523,6 +1563,7 @@ async function createWO(){
     document.getElementById("wo-instructions").value="";
     document.getElementById("wo-worker").value="";
     document.getElementById("wo-intended").value="";
+    document.getElementById("wo-intended-filter").value="";
     document.getElementById("wo-jobtype").value="production";
     document.getElementById("wo-rework-lot").value="";
     toggleReworkFields();
@@ -2020,6 +2061,7 @@ async function submitMyIncomingConfirm(dispatchId){
     if(confirmations.some(function(c){return !c.scanned_item_id;})){ document.getElementById("myrecv-msg").innerHTML='<p style="color:var(--warn);">Scan or enter every item before confirming</p>'; return; }
     const res = await apiFetch("/dispatches/"+dispatchId+"/receive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirmations:confirmations})});
     if(res.error){ document.getElementById("myrecv-msg").innerHTML='<p style="color:var(--warn);">'+res.error+'</p>'; return; }
+    document.getElementById("mywork-detail").innerHTML = '<p style="color:var(--ok);">Received — thanks!</p>';
     loadMyWork();
   }catch(e){ document.getElementById("myrecv-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
@@ -2614,7 +2656,12 @@ async function addSaleLine(prefill){
     '<button type="button" class="secondary btn-sm" onclick="document.getElementById(\''+lineId+'\').remove()">Remove line</button>';
   document.getElementById("s-lines").appendChild(row);
   attachSearchFilter(itemSelectId, itemOptions, function(i){return '<option value="'+i.id+'">'+i.name+(i.item_code?" ("+i.item_code+")":"")+' - stock:'+i.total_stock+'</option>';});
-  if(prefill && prefill.item_id){ document.getElementById(itemSelectId).value = prefill.item_id; await loadSaleLineLots(lineId); }
+  if(prefill && prefill.item_id){
+    document.getElementById(itemSelectId).value = prefill.item_id;
+    const prefilledItem = itemOptions.find(function(i){return String(i.id)===String(prefill.item_id);});
+    if(prefilledItem) document.getElementById(itemSelectId+"-filter").value = prefilledItem.name+(prefilledItem.item_code?" ("+prefilledItem.item_code+")":"");
+    await loadSaleLineLots(lineId);
+  }
 }
 async function loadSaleLineLots(lineId){
   const row = document.getElementById(lineId);
@@ -2672,12 +2719,18 @@ async function createSale(){
     };});
     const fulfillsWrap = document.getElementById("s-fulfills-wrap");
     const shouldFulfill = fulfillsWrap.style.display!=="none" && document.getElementById("s-fulfills-checkbox").checked;
+    const shipRequested = document.getElementById("s-ship-checkbox").checked;
+    const shipAddress = document.getElementById("s-ship-address").value.trim();
     const res=await apiFetch("/sales",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       lines:lines, customer_party_id:custSel.value||null, customer_name:(custParty&&!isReseller)?custParty.name:null,
-      reseller_name:(custParty&&isReseller)?custParty.name:null, fulfills_customer_order_id: shouldFulfill?prefillFulfillsCOId:null })});
-    document.getElementById("sale-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+' — total Rs '+res.total_amount+(shouldFulfill?' — '+prefillFulfillsCOId+' marked billed':'')+'</p>';
+      reseller_name:(custParty&&isReseller)?custParty.name:null, fulfills_customer_order_id: shouldFulfill?prefillFulfillsCOId:null,
+      ship_requested: shipRequested, shipping_address: shipRequested?shipAddress:null })});
+    document.getElementById("sale-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+' — total Rs '+res.total_amount+(shouldFulfill?' — '+prefillFulfillsCOId+' marked billed':'')+(res.shipment_dispatch_id?' — dispatch '+res.shipment_dispatch_id+' created':'')+'</p>';
     document.getElementById("s-lines").innerHTML="";
     document.getElementById("s-customer-select").value="";
+    document.getElementById("s-ship-checkbox").checked=false;
+    document.getElementById("s-ship-address").value="";
+    document.getElementById("s-ship-address-wrap").style.display="none";
     fulfillsWrap.style.display="none";
     prefillFulfillsCOId = null;
     loadSales(); loadSalesForRefund(); loadSalesForReturn();
@@ -2690,9 +2743,30 @@ async function loadSales(){
     const filtered = filterListByPartyAndDate(list, partyQ, from, to, function(s){return s.customer_name||s.reseller_name;}, function(s){return s.sale_date;});
     document.getElementById("sales-list").innerHTML = renderCardList(filtered.slice(0,20), {
       icon: function(){return "💰";}, title: function(s){return s.customer_name||s.reseller_name||s.id;}, sub: function(s){return s.id+' · '+(s.lines?s.lines.length:0)+' line(s) · '+(s.sale_date||"-").slice(0,10);},
-      amount: function(s){return "Rs "+s.total_amount;}, empty: "No sales match this filter.",
+      amount: function(s){return "Rs "+s.total_amount;}, action: function(s){return '<button class="secondary btn-sm" onclick="viewSale(\''+s.id+'\')">View</button>';}, empty: "No sales match this filter.",
     });
   }catch(e){document.getElementById("sales-list").textContent=e.message;}
+}
+async function viewSale(saleId){
+  try{
+    const list = await apiFetch("/sales");
+    const sale = list.find(function(s){return s.id===saleId;});
+    if(!sale){ showError("That sale could not be found."); return; }
+    const lineRows = (sale.lines||[]).map(function(l){
+      return '<tr><td>'+escapeHtml(l.item_name||l.description||"-")+(l.item_code?' <span class="muted">('+l.item_code+')</span>':'')+'</td>'+
+        '<td>'+l.quantity+'</td><td>Rs '+l.sale_price+'</td><td>'+(l.tax_rate||0)+'%</td><td>Rs '+l.line_total+'</td></tr>';
+    }).join("");
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9998;display:flex;align-items:center;justify-content:center;";
+    overlay.innerHTML = '<div class="card" style="max-width:520px;width:92%;max-height:85vh;overflow:auto;">'+
+      '<h4 style="margin-top:0;">'+sale.id+'</h4>'+
+      '<p class="muted">'+escapeHtml(sale.customer_name||sale.reseller_name||"Cash sale")+' · '+(sale.sale_date||"-").slice(0,10)+'</p>'+
+      (lineRows?'<table><tr><th>Item</th><th>Qty</th><th>Price</th><th>Tax</th><th>Line total</th></tr>'+lineRows+'</table>':'<p class="muted">No line items recorded.</p>')+
+      '<p style="text-align:right;font-weight:700;margin-top:8px;">Total: Rs '+sale.total_amount+'</p>'+
+      (sale.notes?'<p class="muted">Notes: '+escapeHtml(sale.notes)+'</p>':'')+
+      '<button class="secondary" onclick="this.closest(\'div[style*=fixed]\').remove()">Close</button></div>';
+    document.body.appendChild(overlay);
+  }catch(e){showError(e.message);}
 }
 async function loadSalesForRefund(){
   try{ const list=await apiFetch("/sales"); document.getElementById("ref-sale-select").innerHTML = list.map(function(s){return '<option value="'+s.id+'">'+s.id+' - '+s.description+' (Rs '+s.total_amount+')</option>';}).join(""); }catch(e){}
@@ -2709,18 +2783,6 @@ async function loadSaleLinesForReturn(){
     }
     document.getElementById("ret-sale-item-select").innerHTML = options.length?options.join(""):"<option value=''>-- no returnable lines --</option>";
   }catch(e){}
-}
-async function createSalesReturn(){
-  try{
-    const sale_item_id = document.getElementById("ret-sale-item-select").value;
-    if(!sale_item_id){ alert("Select a sale line"); return; }
-    const res = await apiFetch("/sale-returns",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      sale_item_id: parseInt(sale_item_id), quantity: parseFloat(document.getElementById("ret-qty").value), notes: document.getElementById("ret-notes").value.trim() })});
-    document.getElementById("sales-return-msg").innerHTML='<p style="color:var(--ok);">Recorded — '+res.remaining_returnable+' still returnable on this line.</p>';
-    document.getElementById("ret-qty").value="";
-    document.getElementById("ret-notes").value="";
-    loadStockBySite();
-  }catch(e){showError(e.message);}
 }
 async function createRefund(){
   try{

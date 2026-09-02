@@ -20,12 +20,12 @@ export async function onRequestGet({ params, env }) {
     }
   } else if (dispatch.dispatch_type === "customer_shipment" && dispatch.related_sale_id) {
     const sale = await env.DB.prepare(
-      `SELECT s.customer_name, s.reseller_name, p.name AS party_name, p.address AS party_address
+      `SELECT s.customer_name, s.reseller_name, s.shipping_address, p.name AS party_name, p.address AS party_address
        FROM sales s LEFT JOIN parties p ON p.id = s.customer_party_id
        WHERE s.id = ?`
     ).bind(dispatch.related_sale_id).first();
     if (sale) {
-      shippingAddress = sale.party_address || null;
+      shippingAddress = sale.shipping_address || sale.party_address || null;
       shippingName = sale.customer_name || sale.reseller_name || sale.party_name || null;
     }
   }

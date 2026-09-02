@@ -1,109 +1,96 @@
 FabRoses Business System - session summary
 
-637 automated tests across 92 files, all passing. Run npm test to verify
+651 automated tests across 95 files, all passing. Run npm test to verify
 yourself.
 
-This part of the session was a mix of new bug reports and a proactive
-performance/scaling pass. Below is what changed, explained honestly,
-including a mistake I made and caught myself along the way.
+This part of the session worked through a 5-issue bug report (fabro4.pdf).
+Below is what changed, explained honestly.
 
-## A genuine race condition, not just a validation bug
+## The most consequential fix: scan verification silently rejecting valid scans
 
-A PO line could be received twice, ending up with more stock than was
-ever ordered - the validation itself was correct in isolation, but it
-read the line's current state, then wrote separately afterward. That gap
-is a real race: if a first request is still in flight when a second,
-genuine click slips in before the first commits, both can read the same
-"nothing received yet" state and both succeed. Fixed by making the check
-and the write one atomic SQL statement, with the condition built directly
-into the WHERE clause, so the database itself - not application code
-reading a snapshot - decides at the exact moment of the write. Proved
-this by simulating two requests both starting from the identical stale
-state and confirming only one succeeds.
+Confirmed by tracing the exact code path, not guessed: a QR's encoded
+value is item_code|lot_id|item_name. But three separate backend
+validation points - confirmPick (dispatch pick confirmation),
+confirmReceive's scan check, and material-issue verify - all compared a
+scanned value against the raw internal ID only, with zero resolution to
+item_code. This exactly explains the reported symptom: scanning with a
+generic phone camera (which shows the raw item_code, unresolved) got
+rejected as "doesn't match anything expected," even when the scan was
+completely correct. The app's own in-app scanner already resolved this
+correctly client-side, which is why it wasn't obvious as a backend gap
+until traced precisely.
 
-## Traceability actually reaching back to the origin, not just one hop
+Fixed with one shared resolveItemId helper, applied consistently across
+all three validation points. Proven against the EXACT item_code format
+from the reported screenshot (FR-PTY-LIN-APL-FLR-0001), and confirmed a
+genuinely different, wrong item is still correctly rejected as a
+mismatch - this isn't a loosened check, just a correctly broadened one.
 
-A lot's "full history" only ever showed its own direct movement at the
-current site - for a raw material received via PO and then transferred
-between sites, that meant the original receipt was invisible entirely,
-even though the underlying origin_lot_id infrastructure to trace it
-already existed and was already being set correctly, just never read
-anywhere. Fixed to also surface the origin lot's own movements (and its
-own BOM consumption, if it was itself a produced finished good), with
-each origin clickable to trace further back.
+## A genuinely broken search field, not a UX preference
 
-## QR code consistency across every place it's generated
+The item search field added earlier this session filtered correctly
+under the hood - proven directly - but the visible dropdown always
+displayed its placeholder text regardless of what was typed, since the
+underlying <select> and the text input were two separate elements with
+no visual connection between them. Typing genuinely narrowed the
+results, but nothing on screen showed that unless the closed dropdown
+was separately clicked open - which reasonably looked like nothing was
+happening at all.
 
-The encoded value was actually already consistent everywhere
-(item_code|lot_id), but the printed label text wasn't - one place showed
-the item's name, three others showed only a bare lot ID with no item
-identification at all. Standardized all four to the same format. While
-fixing this, three of the four still had the same fragile
-string-concatenation pattern behind an earlier session bug (a `3"` in an
-item name breaking a button) - fixed proactively using the same safe
-approach, proven against a tricky item name through a real DOM parser.
+Rebuilt as a real, integrated autocomplete: filtered matches now appear
+as a visible, clickable list directly under the text box as you type.
+The underlying select is kept completely intact (same id, same .value
+behavior, same onchange event firing correctly for dependent logic like
+lot-loading) so nothing downstream needed to change - only the visible
+interaction was redesigned. Proven end-to-end through a real DOM
+simulation: typing shows results, clicking selects correctly, and the
+change event fires.
 
-Separately, the item's name is now also appended as a third,
-pipe-separated segment to the encoded QR value itself - confirmed safe
-by checking every place in the app that parses a scanned code, since all
-four only ever read the first two segments. This means a generic phone
-camera scanning the code now shows something human-readable, while the
-app's own internal scan-matching (which relies on item_code, not name)
-keeps working exactly as before.
+## Stale forms after a successful action
 
-## A proactive performance and scaling pass
+The worker's "confirm receipt" screen kept showing the old form with
+stale values after a successful receipt, since the refresh function
+rebuilt the surrounding list but never touched the form itself sitting
+on top of it - giving a false impression that nothing had happened even
+though the receipt genuinely went through. Fixed to clear that view on
+success. Audited several other similar submit-and-refresh flows (pick
+confirmation, PO receive, sale recording) and confirmed they already
+behaved correctly - this appears to have been specific to this one flow,
+not systemic.
 
-25 new database indexes added, each confirmed against a real, existing
-query pattern in the code rather than added speculatively - covering
-sale_items, dispatch_items, customer_order_items, purchase_order_items,
-material_issues, and about a dozen more foreign-key columns across the
-core transactional tables, plus a composite index for the specific
-item_id+site_id combined-filter pattern used in several places, and one
-for item_photos, which was being queried via a per-row correlated
-subquery with no index behind it at all.
+Also found and removed, while working on a related form: a genuinely
+duplicate function definition (two versions of createSalesReturn, with
+JavaScript silently using only the second) that had been sitting as
+confusing dead code.
 
-Six more N+1 query patterns found and fixed, on top of the four fixed
-earlier this session. The worst was /purchase-orders - a three-level
-pattern (per-order, then per-line, then a billed-quantity lookup per
-line) that could mean roughly 200 sequential database round-trips for a
-modest 50 purchase orders. Now 2 queries total, regardless of how many
-orders exist. Each rewrite was proven with a new test specifically
-checking that the batched version correctly attributes data back to the
-right row - the real risk in this kind of change - not just that the
-totals come out right.
+## Sales gained two real capabilities
 
-Audited every remaining loop-with-a-query-inside pattern in the
-codebase and deliberately left most of them alone: they're bounded by a
-single transaction's own line count (a sale's few lines, one work
-order's material issues), which doesn't grow with total data volume, so
-rewriting them would add risk for no real benefit. Also deliberately did
-not add a row limit to /items, since every searchable item picker in the
-app filters client-side and genuinely needs the full list - limiting it
-would break that feature; a proper fix would mean moving those pickers
-to server-side search, a larger, separate change not made unprompted.
+A sale can now show its own full detail - line items, prices, tax,
+customer - through a click, addressing a genuine gap where a sale's
+information, once recorded, was effectively locked away with no way to
+review it again.
 
-## Also fixed along the way
+A sale can now explicitly request shipping regardless of which site the
+stock physically came from, with its own one-off shipping address -
+extending an earlier fix that only auto-detected this when stock came
+from a worker's site specifically. A plain store sale still correctly
+creates no dispatch by default, unless shipping is explicitly requested.
 
-Two dashboard/history and address-display gaps reported by screenshot:
-a dispatch's shipping address section silently disappeared entirely
-when no address was on file (now clearly says so and still offers to
-print, which honestly shows "no address on file" rather than hiding the
-option); and confirmed with the user that QR codes correctly prefer
-item_code over the plain internal ID when one exists, by design, with no
-change needed.
+## Also found and fixed along the way
+
+A second N+1 query pattern in /sales, caught while building the sale
+detail view - the list endpoint was looping and querying line items once
+per sale. Batched into one query, proven with a test confirming lines
+are correctly attributed to the right sale, not mixed up across rows.
 
 ## Testing this yourself
 
-npm test - 637 tests across 92 files.
+npm test - 651 tests across 95 files.
 
 ## Deployment
 
-Two new columns since the last package: dispatch_items.receive_mismatch_flag
-(covered previously) and dispatches.related_sale_id are already in the
-schema from earlier this session. This round adds only indexes - no new
-columns or tables. Standard process: delete and recreate the D1
-database, then load the schema file fresh, since D1 doesn't support
-adding indexes to an existing live database via a simple ALTER.
+One new column this round: sales.shipping_address. Standard process:
+delete and recreate the D1 database, then load the schema file fresh.
 
 Given the git corruption discussed earlier this session, a full
 wipe-and-replace of the working tree (keeping .git for history) remains
@@ -112,12 +99,12 @@ the safest deployment path:
 find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
 unzip fabroses-v2-complete.zip -d .
 git add -A
-git commit -m "Race condition fix, origin-chain traceability, QR consistency, performance/indexing pass"
+git commit -m "Scan verification fix, real autocomplete search, sale detail view, explicit shipping"
 git push
 
 ## Honestly still open
 
 The item-photo cross-contamination bug from an earlier session remains
-open. The mobile layout fix from earlier this session is a plausible,
-concrete fix based on reading the code, but wasn't verified in a real
-browser.
+open. The mobile layout fix from an earlier round in this session is a
+plausible, concrete fix based on reading the code, but wasn't verified
+in a real browser.

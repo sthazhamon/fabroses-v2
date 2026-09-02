@@ -1,3 +1,5 @@
+import { resolveItemId } from "../../_bom.js";
+
 export async function onRequestPost({ request, env, params }) {
   const body = await request.json();
   const { item_id, lot_id } = body;
@@ -9,7 +11,8 @@ export async function onRequestPost({ request, env, params }) {
   const expectedLot = await env.DB.prepare("SELECT * FROM item_lots WHERE id = ?").bind(issue.lot_id).first();
   if (!expectedLot) return Response.json({ error: "The expected lot record is missing — can't verify" }, { status: 400 });
 
-  if (lot_id !== issue.lot_id || item_id !== expectedLot.item_id) {
+  const resolvedItemId = await resolveItemId(env, item_id);
+  if (lot_id !== issue.lot_id || resolvedItemId !== expectedLot.item_id) {
     return Response.json({ error: "Wrong raw material selected for this work order — that item/lot doesn't match what was issued" }, { status: 400 });
   }
 

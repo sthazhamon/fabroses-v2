@@ -25,7 +25,7 @@ async function consumeStock(env, itemId, quantity, forceLotId) {
 }
 
 // lines: [{ item_id, lot_id, quantity, description, sale_price, tax_rate }]
-export async function createSale(env, { lines, customer_party_id, customer_name, reseller_name, sale_date, notes, created_by, fulfills_customer_order_id }) {
+export async function createSale(env, { lines, customer_party_id, customer_name, reseller_name, sale_date, notes, created_by, fulfills_customer_order_id, ship_requested, shipping_address }) {
   if (!lines || !lines.length) throw { status: 400, error: "At least one line item is required" };
 
   if (fulfills_customer_order_id) {
@@ -64,8 +64,8 @@ export async function createSale(env, { lines, customer_party_id, customer_name,
 
   // Insert the header first (total filled in once lines are computed) —
   // sale_items has a foreign key to this row, so it must exist first.
-  await env.DB.prepare("INSERT INTO sales (id, customer_party_id, customer_name, reseller_name, total_amount, sale_date, notes) VALUES (?, ?, ?, ?, 0, ?, ?)")
-    .bind(id, customer_party_id || null, customer_name || null, reseller_name || null, effectiveDate, notes || null).run();
+  await env.DB.prepare("INSERT INTO sales (id, customer_party_id, customer_name, reseller_name, total_amount, sale_date, notes, shipping_address) VALUES (?, ?, ?, ?, 0, ?, ?, ?)")
+    .bind(id, customer_party_id || null, customer_name || null, reseller_name || null, effectiveDate, notes || null, ship_requested ? (shipping_address || null) : null).run();
 
   let grandTotal = 0;
   const lineResults = [];
@@ -122,7 +122,7 @@ export async function createSale(env, { lines, customer_party_id, customer_name,
     // own site - silently leaving nothing for the worker to see, and no
     // notification that anything needed to ship. Now it does too, whenever
     // the stock genuinely came from a worker rather than the store.
-    const needsDispatch = fulfills_customer_order_id || (fromSite && fromSite.site_type === "worker");
+    const needsDispatch = fulfills_customer_order_id || (fromSite && fromSite.site_type === "worker") || ship_requested;
     if (needsDispatch) {
       shipmentDispatchId = await createDispatch(env, {
         dispatch_type: "customer_shipment", from_site_id: allConsumedForDispatch[0].site_id, to_site_id: null,

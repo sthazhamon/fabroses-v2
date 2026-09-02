@@ -1,5 +1,5 @@
 import { nextId } from "./_ledger.js";
-import { reconcileMaterialIssue, resolveOrigin } from "./_bom.js";
+import { reconcileMaterialIssue, resolveOrigin, resolveItemId } from "./_bom.js";
 
 export async function createDispatch(env, { dispatch_type, from_site_id, to_site_id, items, related_work_order_id, related_customer_order_id, related_purchase_order_id, related_sale_id }) {
   const id = await nextId(env, "dispatches", "DSP");
@@ -16,6 +16,7 @@ export async function createDispatch(env, { dispatch_type, from_site_id, to_site
 }
 
 export async function confirmPick(env, dispatchId, { item_id, lot_id, scanned_quantity }) {
+  const resolvedItemId = await resolveItemId(env, item_id);
   const { results: pending } = await env.DB.prepare("SELECT * FROM dispatch_items WHERE dispatch_id = ? AND scanned_quantity IS NULL").bind(dispatchId).all();
   if (!pending.length) return { error: "Nothing left to pick on this dispatch" };
 
@@ -24,10 +25,10 @@ export async function confirmPick(env, dispatchId, { item_id, lot_id, scanned_qu
   // changes on each move. So a scanned lot that exactly matches wins
   // immediately; otherwise, fall back to comparing origins before giving up.
   const scannedOrigin = lot_id ? await resolveOrigin(env, lot_id) : null;
-  let match = pending.find((p) => p.item_id === item_id && (!lot_id || p.lot_id === lot_id || !p.lot_id));
+  let match = pending.find((p) => p.item_id === resolvedItemId && (!lot_id || p.lot_id === lot_id || !p.lot_id));
   if (!match && lot_id && scannedOrigin) {
     for (const p of pending) {
-      if (p.item_id !== item_id || !p.lot_id) continue;
+      if (p.item_id !== resolvedItemId || !p.lot_id) continue;
       const candidateOrigin = await resolveOrigin(env, p.lot_id);
       if (candidateOrigin && candidateOrigin === scannedOrigin) { match = p; break; }
     }
@@ -95,7 +96,8 @@ export async function confirmReceive(env, dispatchId, itemConfirmations, actorNa
     if (!conf.scanned_item_id) continue;
     const item = await env.DB.prepare("SELECT * FROM dispatch_items WHERE id = ?").bind(conf.dispatch_item_id).first();
     if (!item) continue;
-    if (item.item_id !== conf.scanned_item_id) {
+    const resolvedScannedItemId = await resolveItemId(env, conf.scanned_item_id);
+    if (item.item_id !== resolvedScannedItemId) {
       return { error: "Scanned item doesn't match what's expected on this dispatch", mismatch: true };
     }
     if (conf.scanned_lot_id && item.lot_id && item.lot_id !== conf.scanned_lot_id) {

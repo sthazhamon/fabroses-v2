@@ -35,6 +35,21 @@ export async function resolveOrigin(env, sourceLotId) {
   return sourceLot.origin_lot_id || sourceLot.id;
 }
 
+// A scanned "item id" might actually be an item_code (e.g. from the app's
+// own camera scanner, which resolves this client-side already) or it might
+// be a raw value typed or pasted in directly - most plausibly from a
+// generic phone camera scanning the same QR outside the app entirely,
+// which shows the raw encoded text with no resolution at all. Rather than
+// rely solely on the frontend doing this correctly, resolve it here too,
+// so scan verification isn't fragile to how the value actually got into
+// the field.
+export async function resolveItemId(env, rawValue) {
+  if (!rawValue) return rawValue;
+  if (rawValue.startsWith("ITM-")) return rawValue;
+  const byCode = await env.DB.prepare("SELECT id FROM items WHERE item_code = ?").bind(rawValue).first();
+  return byCode ? byCode.id : rawValue;
+}
+
 async function nextId(env, table, prefix, pad = 6) {
   const row = await env.DB.prepare(`SELECT COUNT(*) AS c FROM ${table}`).first();
   return `${prefix}-` + String((row?.c || 0) + 1).padStart(pad, "0");

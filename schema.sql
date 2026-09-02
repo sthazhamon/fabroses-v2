@@ -417,6 +417,7 @@ CREATE TABLE sales (
   total_amount REAL NOT NULL DEFAULT 0,
   sale_date TEXT,
   notes TEXT,
+  shipping_address TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
