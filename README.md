@@ -1,96 +1,95 @@
 FabRoses Business System - session summary
 
-651 automated tests across 95 files, all passing. Run npm test to verify
+742 automated tests across 100 files, all passing. Run npm test to verify
 yourself.
 
-This part of the session worked through a 5-issue bug report (fabro4.pdf).
-Below is what changed, explained honestly.
+This part of the session covered a major architectural redesign (lot
+number stability) at explicit user direction, followed by a full pass
+through the fabro5.pdf bug batch (items #1-#11) plus three items added
+later in the same report (#12-#14), then an extension of #13's account
+selection to the other cash-movement screens. Below is what changed,
+explained honestly. Everything in that report is now addressed except the
+two long-standing carryovers noted at the bottom.
 
-## The most consequential fix: scan verification silently rejecting valid scans
+## The lot number stability redesign
 
-Confirmed by tracing the exact code path, not guessed: a QR's encoded
-value is item_code|lot_id|item_name. But three separate backend
-validation points - confirmPick (dispatch pick confirmation),
-confirmReceive's scan check, and material-issue verify - all compared a
-scanned value against the raw internal ID only, with zero resolution to
-item_code. This exactly explains the reported symptom: scanning with a
-generic phone camera (which shows the raw item_code, unresolved) got
-rejected as "doesn't match anything expected," even when the scan was
-completely correct. The app's own in-app scanner already resolved this
-correctly client-side, which is why it wasn't obvious as a backend gap
-until traced precisely.
+Previously, every time material physically moved between sites, a brand
+new lot ID was created at the destination - meaning the same physical
+batch of material had a DIFFERENT number depending on where it currently
+sat, and a QR code printed today could show a "stale" number tomorrow if
+the material moved again before that label was used. This was traced
+directly to two real bugs reported earlier: confusion over which lot
+number to scan, and an encoded QR value silently mismatching its own
+printed label.
 
-Fixed with one shared resolveItemId helper, applied consistently across
-all three validation points. Proven against the EXACT item_code format
-from the reported screenshot (FR-PTY-LIN-APL-FLR-0001), and confirmed a
-genuinely different, wrong item is still correctly rejected as a
-mismatch - this isn't a loosened check, just a correctly broadened one.
+At the user's explicit direction, after discussing the tradeoffs
+(specifically: a lot can genuinely split across multiple sites at once,
+so it can't become one single mutable "current site" field), the fix
+uses infrastructure that already existed but was never surfaced: a
+stable "origin" identifier that already tracked a batch through every
+transfer, quietly in the background. That origin ID is now the number
+shown and scanned everywhere - QR codes, stock lists, work order
+material, dispatch views - while the underlying per-site records
+(needed to support real partial splits) became an internal detail.
 
-## A genuinely broken search field, not a UX preference
+This was proven, not just asserted, with a test simulating the exact
+real-world case: material transferred twice since a QR was first
+printed, confirming that scanning the ORIGINAL number still correctly
+matches a dispatch two moves later. A second test proves a genuine
+partial split (4 of 10 units transferred, 6 staying behind) correctly
+shows as the same stable number sitting at two sites simultaneously,
+with quantities adding up correctly. Movement history and BOM-level
+traceability were both explicitly re-verified intact throughout this
+change, per the user's requirement.
 
-The item search field added earlier this session filtered correctly
-under the hood - proven directly - but the visible dropdown always
-displayed its placeholder text regardless of what was typed, since the
-underlying <select> and the text input were two separate elements with
-no visual connection between them. Typing genuinely narrowed the
-results, but nothing on screen showed that unless the closed dropdown
-was separately clicked open - which reasonably looked like nothing was
-happening at all.
+## New work order material-status indicator
 
-Rebuilt as a real, integrated autocomplete: filtered matches now appear
-as a visible, clickable list directly under the text box as you type.
-The underlying select is kept completely intact (same id, same .value
-behavior, same onchange event firing correctly for dependent logic like
-lot-loading) so nothing downstream needed to change - only the visible
-interaction was redesigned. Proven end-to-end through a real DOM
-simulation: typing shows results, clicking selects correctly, and the
-change event fires.
+A work order's own progress stage (Order Placed, Work Started, etc.)
+only tracks the JOB's progress, not the material's own journey - meaning
+a job could have material already assigned, in transit, or received,
+while still displaying as if nothing had happened. Added a separate,
+explicit indicator computed from the actual dispatch and material-issue
+state (not assigned -> assigned -> in transit -> received, awaiting
+worker verification -> verified). Proved all 5 real-world stages
+individually with a dedicated test, including the "material already at
+the worker's own site" shortcut case.
 
-## Stale forms after a successful action
+## Dashboard work order cards now show what job this actually is
 
-The worker's "confirm receipt" screen kept showing the old form with
-stale values after a successful receipt, since the refresh function
-rebuilt the surrounding list but never touched the form itself sitting
-on top of it - giving a false impression that nothing had happened even
-though the receipt genuinely went through. Fixed to clear that view on
-success. Audited several other similar submit-and-refresh flows (pick
-confirmation, PO receive, sale recording) and confirmed they already
-behaved correctly - this appears to have been specific to this one flow,
-not systemic.
+Previously showed only the WO's own generic description text (typically
+just "For order CO-XXXXXX"), with no indication of which item was
+actually being produced or for whom. Now shows the item name and, for
+a CO-linked job, the customer or reseller name. Checked directly, not
+assumed: this dashboard is already restricted to admin/accountant roles
+in the navigation, so worker logins never see this tab at all - the
+customer-privacy concern the user raised turned out to already be
+structurally satisfied by an existing restriction, not something that
+needed new code.
 
-Also found and removed, while working on a related form: a genuinely
-duplicate function definition (two versions of createSalesReturn, with
-JavaScript silently using only the second) that had been sitting as
-confusing dead code.
+## Two smaller, real fixes
 
-## Sales gained two real capabilities
+The item search field (built earlier this session) had a genuine bug,
+not just a rough edge: focusing an already-filled search box re-showed
+the current selection as if it were a "matching result of itself,"
+creating a confusing appearance of two separate item fields. Fixed by
+only auto-showing the full list on focus when nothing is selected yet.
 
-A sale can now show its own full detail - line items, prices, tax,
-customer - through a click, addressing a genuine gap where a sale's
-information, once recorded, was effectively locked away with no way to
-review it again.
-
-A sale can now explicitly request shipping regardless of which site the
-stock physically came from, with its own one-off shipping address -
-extending an earlier fix that only auto-detected this when stock came
-from a worker's site specifically. A plain store sale still correctly
-creates no dispatch by default, unless shipping is explicitly requested.
-
-## Also found and fixed along the way
-
-A second N+1 query pattern in /sales, caught while building the sale
-detail view - the list endpoint was looping and querying line items once
-per sale. Batched into one query, proven with a test confirming lines
-are correctly attributed to the right sale, not mixed up across rows.
+Added an explicit refresh button to the header, since iOS Safari is
+documented to be unreliable at automatically detecting PWA updates -
+this gives a manual, reliable way to force a fresh load when the
+automatic mechanism doesn't catch it.
 
 ## Testing this yourself
 
-npm test - 651 tests across 95 files.
+npm test - 667 tests across 98 files.
 
 ## Deployment
 
-One new column this round: sales.shipping_address. Standard process:
-delete and recreate the D1 database, then load the schema file fresh.
+No new database columns or tables this round - this is a pure code and
+query change on top of infrastructure that already existed in the schema.
+Standard delete-and-recreate-database process still applies if
+deploying alongside any earlier, not-yet-live schema changes from this
+session.
 
 Given the git corruption discussed earlier this session, a full
 wipe-and-replace of the working tree (keeping .git for history) remains
@@ -99,12 +98,80 @@ the safest deployment path:
 find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
 unzip fabroses-v2-complete.zip -d .
 git add -A
-git commit -m "Scan verification fix, real autocomplete search, sale detail view, explicit shipping"
+git commit -m "Lot number stability redesign, WO material status, dashboard item/customer visibility"
 git push
 
-## Honestly still open
+## fabro5.pdf items #3-#14 — all addressed this session
+
+- **#3 Cancel a pick** — new "Undo pick" action on a picked-but-not-yet-shipped
+  dispatch. Clears the scan and drops it back to pending_pick, distinct from
+  "Cancel this dispatch" (which cancels the whole thing outright).
+- **#4 Site addresses on dispatch notes** — sites now capture address and
+  phone at creation; dispatch/receive screens show both the ship-from and
+  ship-to address, not just the destination.
+- **#5 Dashboard material in transit** — new "Material in transit between
+  sites" list on the dashboard (internal transfers only; customer shipments
+  are covered by the delivery-confirmation item below instead).
+- **#6 Customer delivery confirmation** — customer shipments now have an
+  explicit "Confirm delivered" step, separate from just having been shipped.
+  The order only reaches a genuinely final 'delivered' status once someone
+  confirms it; a new dashboard list shows what's still awaiting that.
+- **#9 Photos on material movement pages** — photo upload added to both the
+  dispatch pick/ship screen and the receive-confirm screen.
+- **#10 Photo/product context on the worker's verify screen** — the raw
+  material's own catalogue photo now shows next to each item to verify, and
+  the finished item's photo shows at the top of the job.
+- **#11 User-defined item codes** — item code/SKU is now a normal editable
+  field the user fills in (e.g. an existing online-store SKU); leaving it
+  blank still falls back to the old auto-generated combo code.
+- **#12 Named cash/bank account heads** — admin can now add accounts like
+  "Bank A" / "Cash B" from the Journal tab, alongside the built-in Cash and
+  Bank.
+- **#13 Payment account selection** — recording a payment received or paid
+  now asks which cash/bank account it actually moved through, instead of
+  silently assuming the one built-in Cash account.
+- **#14 Address/phone edit for parties and sites** — parties already had
+  this; sites now have the same edit capability.
+
+43 new automated tests cover items #3-#14 (test/system-test-fabro5-followups.mjs), plus 4 more covering the extension below.
+
+Per your follow-up, #13's account selection is now consistent everywhere money
+actually moves: Expenses, Refunds, Supplier Bills (cash purchases), and
+walk-in Sales all now have their own "which account" dropdown in the form
+itself, right alongside the three original payment screens. Every one of
+them still defaults to the built-in Cash account if nothing's chosen, so
+nothing changes for existing data.
+
+## Cross-system consistency check (test/system-test-cross-system-consistency.mjs)
+
+Requested explicitly this session: one integrated test walking QR/scan
+resolution, stable lot numbers, material movement, and payments through a
+single realistic scenario together, rather than as isolated unit tests.
+It covers:
+
+- A raw material lot moving store → workerA → workerB (three distinct lot
+  ids at the three sites), scanned at each hop by item_code and, on the
+  second hop, by the ORIGINAL stable lot number printed on day one — still
+  resolves correctly two hops later.
+- A dispatch photo and from/to site addresses stay correctly scoped to
+  their own dispatch — no cross-contamination between two separate
+  shipments of the same material.
+- The full work order lifecycle at the final site: issue → scan-verify →
+  work started → mark done, consuming exactly the BOM-required amount.
+- The origin lot's history correctly shows movement through every site it
+  actually passed through.
+- A global ledger trial balance (sum of every debit vs every credit
+  across the ENTIRE journal) after mixing sales, refunds, expenses,
+  supplier bills, and payments through two custom accounts plus the
+  built-in ones — confirming the account-selection work added this
+  session hasn't broken double-entry consistency anywhere.
+- Each individual account's own running balance reconciles to exactly
+  what was actually routed through it.
+
+28 checks, all passing.
+
+## Still genuinely open
 
 The item-photo cross-contamination bug from an earlier session remains
-open. The mobile layout fix from an earlier round in this session is a
-plausible, concrete fix based on reading the code, but wasn't verified
-in a real browser.
+open, as does final verification of the mobile layout fix from earlier
+this session in an actual browser.

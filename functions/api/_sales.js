@@ -1,4 +1,4 @@
-import { postJournalEntry, getOrCreatePartyAccount, accountFixedId, nextId } from "./_ledger.js";
+import { postJournalEntry, getOrCreatePartyAccount, accountFixedId, resolveCashBankAccountId, nextId } from "./_ledger.js";
 import { createDispatch } from "./_dispatch.js";
 
 async function consumeStock(env, itemId, quantity, forceLotId) {
@@ -25,8 +25,11 @@ async function consumeStock(env, itemId, quantity, forceLotId) {
 }
 
 // lines: [{ item_id, lot_id, quantity, description, sale_price, tax_rate }]
-export async function createSale(env, { lines, customer_party_id, customer_name, reseller_name, sale_date, notes, created_by, fulfills_customer_order_id, ship_requested, shipping_address }) {
+export async function createSale(env, { lines, customer_party_id, customer_name, reseller_name, sale_date, notes, created_by, fulfills_customer_order_id, ship_requested, shipping_address, account_id }) {
   if (!lines || !lines.length) throw { status: 400, error: "At least one line item is required" };
+
+  let cashId;
+  if (!customer_party_id) cashId = await resolveCashBankAccountId(env, account_id);
 
   if (fulfills_customer_order_id) {
     const order = await env.DB.prepare("SELECT * FROM customer_orders WHERE id = ?").bind(fulfills_customer_order_id).first();
@@ -99,7 +102,7 @@ export async function createSale(env, { lines, customer_party_id, customer_name,
   const salesRevenueId = await accountFixedId(env, "3000");
   const jeLines = [];
   if (customer_party_id) jeLines.push({ account_id: await getOrCreatePartyAccount(env, customer_party_id), debit: grandTotal });
-  else jeLines.push({ account_id: await accountFixedId(env, "1000"), debit: grandTotal });
+  else jeLines.push({ account_id: cashId, debit: grandTotal });
 
   const totalTax = lineResults.reduce((s, l) => s + l.tax_amount, 0);
   const totalPreTax = grandTotal - totalTax;

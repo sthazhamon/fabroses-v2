@@ -1,4 +1,4 @@
-import { postJournalEntry, getOrCreatePartyAccount, accountFixedId, nextId } from "./_ledger.js";
+import { postJournalEntry, getOrCreatePartyAccount, accountFixedId, resolveCashBankAccountId, nextId } from "./_ledger.js";
 
 export async function onRequestGet({ env }) {
   const { results: bills } = await env.DB.prepare("SELECT * FROM supplier_bills ORDER BY bill_date DESC, id DESC").all();
@@ -21,8 +21,14 @@ export async function onRequestGet({ env }) {
 
 export async function onRequestPost({ request, env, data }) {
   const body = await request.json();
-  const { purchase_order_id, supplier_party_id, supplier_name, bill_number, bill_date, description, lines } = body;
+  const { purchase_order_id, supplier_party_id, supplier_name, bill_number, bill_date, description, lines, account_id } = body;
   if (!supplier_name || !lines || !lines.length) return Response.json({ error: "supplier_name and at least one line item are required" }, { status: 400 });
+
+  let cashId;
+  if (!supplier_party_id) {
+    try { cashId = await resolveCashBankAccountId(env, account_id); }
+    catch (e) { return Response.json({ error: e.message }, { status: 400 }); }
+  }
 
   let preTaxAmount = 0, totalTax = 0;
   for (const line of lines) {
@@ -77,7 +83,7 @@ export async function onRequestPost({ request, env, data }) {
   const jeLines = [{ account_id: inventoryOrExpenseId, debit: preTaxAmount }];
   if (totalTax > 0) jeLines.push({ account_id: await accountFixedId(env, "1300"), debit: totalTax });
   if (supplier_party_id) jeLines.push({ account_id: await getOrCreatePartyAccount(env, supplier_party_id), credit: amount });
-  else jeLines.push({ account_id: await accountFixedId(env, "1000"), credit: amount });
+  else jeLines.push({ account_id: cashId, credit: amount });
 
   await postJournalEntry(env, { date: effectiveDate, description: description || `Bill from ${supplier_name}`, reference_type: "supplier_bill", reference_id: id, created_by: data.user?.name, lines: jeLines });
 

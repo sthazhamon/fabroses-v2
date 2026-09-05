@@ -1,6 +1,7 @@
 export async function onRequestGet({ params, env }) {
   const dispatch = await env.DB.prepare(
-    `SELECT d.*, fs.name AS from_site_name, ts.name AS to_site_name, ts.address AS to_site_address
+    `SELECT d.*, fs.name AS from_site_name, fs.address AS from_site_address, fs.phone AS from_site_phone,
+            ts.name AS to_site_name, ts.address AS to_site_address, ts.phone AS to_site_phone
      FROM dispatches d LEFT JOIN sites fs ON fs.id = d.from_site_id LEFT JOIN sites ts ON ts.id = d.to_site_id
      WHERE d.id = ?`
   ).bind(params.id).first();
@@ -38,7 +39,11 @@ export async function onRequestGet({ params, env }) {
      WHERE di.dispatch_id = ?`
   ).bind(params.id).all();
 
-  return Response.json({ ...dispatch, shipping_name: shippingName, shipping_address: shippingAddress, items });
+  const { results: photos } = await env.DB.prepare(
+    "SELECT * FROM photos WHERE entity_type = 'dispatch' AND entity_id = ? ORDER BY uploaded_at DESC"
+  ).bind(params.id).all();
+
+  return Response.json({ ...dispatch, shipping_name: shippingName, shipping_address: shippingAddress, items, photos });
 }
 
 export async function onRequestPatch({ request, env, params }) {

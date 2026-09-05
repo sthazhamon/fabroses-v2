@@ -11,7 +11,7 @@ export async function onRequestGet({ env }) {
 
 export async function onRequestPost({ request, env }) {
   const body = await request.json();
-  const { name, site_type, worker_user_id, address, notes } = body;
+  const { name, site_type, worker_user_id, address, phone, notes } = body;
   const validTypes = ["store", "worker"];
 
   if (!name || !validTypes.includes(site_type)) {
@@ -26,12 +26,12 @@ export async function onRequestPost({ request, env }) {
       if (existingLink) return Response.json({ error: "That user is already linked to a different site" }, { status: 400 });
     }
     const { siteId, partyId } = await createWorkerSite(env, { name, worker_user_id });
-    if (address || notes) await env.DB.prepare("UPDATE sites SET address = ?, notes = ? WHERE id = ?").bind(address || null, notes || null, siteId).run();
+    if (address || phone || notes) await env.DB.prepare("UPDATE sites SET address = ?, phone = ?, notes = ? WHERE id = ?").bind(address || null, phone || null, notes || null, siteId).run();
     return Response.json({ id: siteId, worker_party_id: partyId });
   }
 
   const id = await nextId(env, "sites", "SITE");
-  await env.DB.prepare("INSERT INTO sites (id, name, site_type, address, notes) VALUES (?, ?, 'store', ?, ?)")
-    .bind(id, name, address || null, notes || null).run();
+  await env.DB.prepare("INSERT INTO sites (id, name, site_type, address, phone, notes) VALUES (?, ?, 'store', ?, ?, ?)")
+    .bind(id, name, address || null, phone || null, notes || null).run();
   return Response.json({ id });
 }

@@ -116,7 +116,7 @@
 <div id="app">
   <header>
     <h1>FabRoses</h1>
-    <div><span class="who" id="who-label" onclick="toggleChangePinForm()" style="cursor:pointer;text-decoration:underline dotted;" title="Click to change your PIN"></span> <button class="logout" onclick="logout()">Log out</button></div>
+    <div><button class="secondary btn-sm" onclick="forceRefresh()" title="If things look out of date, tap this" style="margin-right:8px;">🔄 Refresh</button><span class="who" id="who-label" onclick="toggleChangePinForm()" style="cursor:pointer;text-decoration:underline dotted;" title="Click to change your PIN"></span> <button class="logout" onclick="logout()">Log out</button></div>
   </header>
   <div id="change-pin-form" style="display:none;position:fixed;top:60px;right:10px;z-index:50;background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;box-shadow:0 4px 16px rgba(0,0,0,0.15);width:260px;">
     <h4 style="margin-top:0;">Change my PIN</h4>
@@ -143,6 +143,8 @@
       <select id="it-type"><option value="finished_good">Finished good</option><option value="raw_material">Raw material</option></select>
       <label>Name</label>
       <input id="it-name" placeholder="e.g. Peacock Applique Saree">
+      <label>Item code / SKU (optional — leave blank to auto-generate from category/fabric/work type/pattern)</label>
+      <input id="it-code" placeholder="e.g. your existing online-store SKU">
       <div class="row">
         <div><label>Category <button type="button" class="secondary btn-sm" onclick="addMasterEntry('category')">+new</button></label><select id="it-category"></select></div>
         <div><label>Fabric <button type="button" class="secondary btn-sm" onclick="addMasterEntry('fabric')">+new</button></label><select id="it-fabric"></select></div>
@@ -182,13 +184,15 @@
       <h3>Sites</h3>
       <label>Name</label><input id="site-name">
       <label>Type</label><select id="site-type" onchange="toggleSiteUserLink()"><option value="store">Store</option><option value="worker">Worker</option></select>
+      <label>Address</label><textarea id="site-address" rows="2" placeholder="Needed for dispatch notes and shipping labels"></textarea>
+      <label>Phone</label><input id="site-phone">
       <div id="site-user-link-wrap" style="display:none;">
         <label>Link to an existing user login (optional — leave blank to create the site without one for now)</label>
         <select id="site-user-select"><option value="">-- none --</option></select>
       </div>
       <button class="primary" onclick="createSite()">Add site</button>
       <div id="site-result"></div>
-      <div class="card"><h4 style="margin-top:0;">All sites</h4><div id="site-list" class="muted">Loading...</div></div>
+      <div class="card"><h4 style="margin-top:0;">All sites</h4><div id="site-list" class="muted">Loading...</div><div id="site-detail"></div></div>
       <div class="card"><h4 style="margin-top:0;">Stock by site</h4><div id="stock-by-site" class="muted">Loading...</div></div>
       <div class="card"><h4 style="margin-top:0;">Transfer stock between sites</h4>
         <label>From site</label><select id="ts-from-site"></select>
@@ -373,6 +377,7 @@
       </div>
       <label>Customer or reseller <button type="button" class="secondary btn-sm" onclick="addPartyInline('customer','s-customer-select')">+new customer</button></label>
       <select id="s-customer-select" onchange="applyResellerDiscount()"><option value="">-- none / cash sale --</option></select>
+      <label>Cash received into (only used for a cash sale, above)</label><select id="s-account"></select>
       <div class="card"><h4 style="margin-top:0;">Line items</h4><div id="s-lines"></div>
         <button type="button" class="secondary btn-sm" onclick="addSaleLine().then(applyResellerDiscount)">+ Add line</button></div>
       <label><input type="checkbox" id="s-ship-checkbox" style="width:auto;" onchange="document.getElementById('s-ship-address-wrap').style.display=this.checked?'block':'none';"> This needs to be shipped/dispatched</label>
@@ -385,6 +390,7 @@
         <label>Sale <button type="button" class="secondary btn-sm" onclick="loadSalesForRefund()">Refresh list</button></label>
         <select id="ref-sale-select"></select>
         <label>Amount</label><input id="ref-amount" type="number" step="0.01">
+        <label>Refund from account (only used when refunding a cash sale)</label><select id="ref-account"></select>
         <label>Reason</label><input id="ref-reason">
         <button class="secondary" onclick="createRefund()">Record refund</button><div id="refund-msg"></div></div>
       <div class="card"><h4 style="margin-top:0;">Sales Return</h4>
@@ -408,6 +414,7 @@
       <label>Bill date</label><input id="sb-date" type="date">
       <label>Supplier <button type="button" class="secondary btn-sm" onclick="addPartyInline('supplier','sb-supplier-select')">+new</button></label>
       <select id="sb-supplier-select"></select>
+      <label>Paid from account (only used when no supplier is selected above, i.e. a straight cash purchase)</label><select id="sb-account"></select>
       <label>Bill number</label><input id="sb-number">
       <label>Description</label><input id="sb-desc">
       <button class="primary" onclick="createSupplierBill()">Record bill</button>
@@ -424,6 +431,7 @@
       <select id="e-category-select"></select>
       <label>Description</label><input id="e-desc">
       <label>Amount</label><input id="e-amount" type="number" step="0.01">
+      <label>Paid from account</label><select id="e-account"></select>
       <button class="primary" onclick="createExpense()">Record expense</button>
       <div id="expense-result"></div>
       <div class="card"><h4 style="margin-top:0;">Recent expenses</h4><div id="expenses-list" class="muted">Loading...</div></div>
@@ -434,6 +442,7 @@
       <label>Customer / reseller</label><select id="recv-party" onchange="loadOutstandingFor('receivable')"></select>
       <div id="recv-bills" class="muted"></div>
       <label>Amount received</label><input id="recv-amount" type="number" step="0.01">
+      <label>Account received into</label><select id="recv-account"></select>
       <label>Method / reference</label><input id="recv-ref">
       <button class="primary" onclick="submitPayment('receivable')">Record payment</button>
       <div id="recv-result"></div>
@@ -446,6 +455,7 @@
       <label>Supplier</label><select id="pay-party" onchange="loadOutstandingFor('payable')"></select>
       <div id="pay-bills" class="muted"></div>
       <label>Amount paid</label><input id="pay-amount" type="number" step="0.01">
+      <label>Account paid from</label><select id="pay-account"></select>
       <label>Method / reference</label><input id="pay-ref">
       <button class="primary" onclick="submitPayment('payable')">Record payment</button>
       <div id="pay-result"></div>
@@ -456,12 +466,19 @@
       <label>Worker</label><select id="wp-party" onchange="loadOutstandingFor('worker')"></select>
       <div id="wp-bills" class="muted"></div>
       <label>Amount paid</label><input id="wp-amount" type="number" step="0.01">
+      <label>Account paid from</label><select id="wp-account"></select>
       <button class="primary" onclick="submitPayment('worker')">Record payment</button>
       <div id="wp-result"></div>
     </section>
 
     <section class="panel" id="panel-journal">
       <h3>General Journal</h3>
+      <div class="card"><h4 style="margin-top:0;">Cash &amp; Bank accounts</h4>
+        <p class="muted">These are the accounts offered when recording a payment received or paid — add one for each real cash till or bank account you actually use (e.g. "Bank A", "Cash B").</p>
+        <div id="cashbank-list" class="muted">Loading...</div>
+        <div class="row"><input id="cashbank-name" placeholder="e.g. Bank A" style="flex:2;"><button class="secondary" onclick="addCashBankAccount()" style="flex:1;">Add account</button></div>
+        <div id="cashbank-result"></div>
+      </div>
       <p class="muted">Manual entries — opening balances, corrections, anything the other screens don't cover.</p>
       <label>Date</label><input id="je-date" type="date">
       <label>Debit account</label><select id="je-debit"></select>
@@ -616,6 +633,19 @@ async function doLogin(){
   }catch(e){errEl.textContent="Could not sign in.";}
 }
 function logout(){ localStorage.removeItem("fr_token"); localStorage.removeItem("fr_role"); localStorage.removeItem("fr_name"); localStorage.removeItem("fr_site"); document.getElementById("app").style.display="none"; document.getElementById("login-screen").style.display="flex"; }
+async function forceRefresh(){
+  try{
+    if("serviceWorker" in navigator){
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for(const reg of regs){ await reg.update(); }
+    }
+    if(window.caches){
+      const keys = await caches.keys();
+      for(const key of keys){ await caches.delete(key); }
+    }
+  }catch(e){}
+  window.location.href = window.location.pathname + "?_refresh=" + Date.now();
+}
 
 function switchTab(tabId){
   document.querySelectorAll(".tab-btn").forEach(function(b){b.classList.toggle("active", b.dataset.tab===tabId);});
@@ -717,13 +747,13 @@ function loadTabData(tabId){
     if(tabId==="dispatch"){ loadDispatchQueue(); loadDispatchHistory(); }
     if(tabId==="receive"){ loadReceiveQueue(); loadPOReceiveQueue(); loadReceiveHistory(); }
     if(tabId==="co"){ populateCustomerOrResellerDropdown("co-customer-select"); loadCOs(); }
-    if(tabId==="sales"){ populateCustomerOrResellerDropdown("s-customer-select"); loadSalesForRefund(); loadSalesForReturn(); loadSales(); }
-    if(tabId==="purchases"){ populatePartyDropdown("sb-supplier-select","supplier"); loadUnbilledPOs(); loadSupplierBills(); }
-    if(tabId==="expenses"){ populateExpenseCategoryDropdown(); loadExpenses(); }
-    if(tabId==="receivable"){ populatePartyDropdown("recv-party",["customer","reseller"],false,true); loadReceivableHistory(); }
-    if(tabId==="payable") populatePartyDropdown("pay-party","supplier");
-    if(tabId==="workerpay") populatePartyDropdown("wp-party","worker");
-    if(tabId==="journal") populateAccountDropdowns();
+    if(tabId==="sales"){ populateCustomerOrResellerDropdown("s-customer-select"); populateCashBankDropdown("s-account"); populateCashBankDropdown("ref-account"); loadSalesForRefund(); loadSalesForReturn(); loadSales(); }
+    if(tabId==="purchases"){ populatePartyDropdown("sb-supplier-select","supplier"); populateCashBankDropdown("sb-account"); loadUnbilledPOs(); loadSupplierBills(); }
+    if(tabId==="expenses"){ populateExpenseCategoryDropdown(); populateCashBankDropdown("e-account"); loadExpenses(); }
+    if(tabId==="receivable"){ populatePartyDropdown("recv-party",["customer","reseller"],false,true); populateCashBankDropdown("recv-account"); loadReceivableHistory(); }
+    if(tabId==="payable"){ populatePartyDropdown("pay-party","supplier"); populateCashBankDropdown("pay-account"); }
+    if(tabId==="workerpay"){ populatePartyDropdown("wp-party","worker"); populateCashBankDropdown("wp-account"); }
+    if(tabId==="journal"){ populateAccountDropdowns(); loadCashBankAccounts(); }
     if(tabId==="ledger"){ populateAccountDropdown("ledger-account"); loadPnL(); }
     if(tabId==="parties") loadParties();
     if(tabId==="users") loadUsers();
@@ -774,7 +804,7 @@ function attachSearchFilter(selectId, allOptions, renderOptionFn, blankLabel){
   }
 
   textInput.oninput = function(){ renderResults(textInput.value); };
-  textInput.onfocus = function(){ renderResults(textInput.value); };
+  textInput.onfocus = function(){ if(!sel.value) renderResults(""); };
   textInput.addEventListener("blur", function(){ setTimeout(function(){ resultsList.style.display="none"; }, 150); });
 
   // If a prefilled value already exists on the underlying select, show its
@@ -868,6 +898,30 @@ async function populateAccountDropdown(selectId){
   document.getElementById(selectId).innerHTML = list.map(function(a){return '<option value="'+a.id+'">'+(a.code||"")+' '+a.name+(a.party_name?" — "+a.party_name:"")+'</option>';}).join("");
 }
 async function populateAccountDropdowns(){ await populateAccountDropdown("je-debit"); await populateAccountDropdown("je-credit"); }
+async function populateCashBankDropdown(selectId){
+  const el = document.getElementById(selectId);
+  if(!el) return;
+  const list = await apiFetch("/accounts?cash_bank=1");
+  el.innerHTML = list.map(function(a){return '<option value="'+a.id+'">'+a.name+'</option>';}).join("");
+}
+async function loadCashBankAccounts(){
+  try{
+    const list = await apiFetch("/accounts?cash_bank=1");
+    document.getElementById("cashbank-list").innerHTML = list.length
+      ? '<ul style="margin:6px 0;padding-left:18px;">'+list.map(function(a){return '<li>'+a.name+'</li>';}).join("")+'</ul>'
+      : '<p class="muted">No cash/bank accounts yet — Cash and Bank are always available by default.</p>';
+  }catch(e){document.getElementById("cashbank-list").textContent=e.message;}
+}
+async function addCashBankAccount(){
+  try{
+    const name = document.getElementById("cashbank-name").value.trim();
+    if(!name){ alert("Enter a name, e.g. Bank A"); return; }
+    await apiFetch("/accounts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:name})});
+    document.getElementById("cashbank-name").value="";
+    document.getElementById("cashbank-result").innerHTML='<p style="color:var(--ok);">Added.</p>';
+    loadCashBankAccounts(); populateAccountDropdowns();
+  }catch(e){ document.getElementById("cashbank-result").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
+}
 
 // ---------------- Dashboard ----------------
 function filterListByPartyAndDate(list, partyQuery, from, to, partyFieldFn, dateFieldFn){
@@ -897,7 +951,7 @@ async function loadDashboard(){
         '<button class="secondary btn-sm" onclick="switchTab(\'workorders\');viewWO(\''+w.id+'\')">View</button></div>';}).join("")
       : '<p class="muted">Nothing overdue right now.</p>';
     const pendingWoHtml = alerts.pending_work_orders.length
-      ? alerts.pending_work_orders.slice(0,10).map(function(w){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+w.description+'</p><p class="lc-sub">'+w.id+' · '+w.stage+' · '+(w.worker_site_name||"-")+(w.due_date?' · due '+w.due_date:'')+'</p></div>'+
+      ? alerts.pending_work_orders.slice(0,10).map(function(w){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+(w.intended_item_name||w.description)+(w.intended_item_code?' ('+w.intended_item_code+')':'')+'</p><p class="lc-sub">'+w.id+' · '+w.stage+' · '+(w.worker_site_name||"-")+(w.due_date?' · due '+w.due_date:'')+(w.customer_name||w.reseller_name?' · for '+escapeHtml(w.customer_name||w.reseller_name):'')+'</p></div>'+
         '<button class="secondary btn-sm" onclick="switchTab(\'workorders\');viewWO(\''+w.id+'\')">View</button></div>';}).join("")+(alerts.pending_work_orders.length>10?'<p class="muted">and '+(alerts.pending_work_orders.length-10)+' more...</p>':'')
       : '<p class="muted">Nothing in progress right now.</p>';
     const unsoldHtml = alerts.unsold_stock.length
@@ -908,6 +962,14 @@ async function loadDashboard(){
       ? alerts.items_missing_bom.map(function(i){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+i.name+(i.item_code?' ('+i.item_code+')':'')+'</p><p class="lc-sub">No BOM entered - this will block work order creation</p></div>'+
         '<button class="secondary btn-sm" onclick="switchTab(\'catalogue\');viewItem(\''+i.item_id+'\')">View</button></div>';}).join("")
       : '<p class="muted">Every finished item has a BOM entered.</p>';
+    const transitHtml = (alerts.material_in_transit||[]).length
+      ? alerts.material_in_transit.map(function(d){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+(d.item_summary||d.id)+'</p><p class="lc-sub">'+d.id+' · '+(d.from_site_name||"-")+' → '+(d.to_site_name||"-")+' · shipped '+(d.shipped_at||"-").slice(0,10)+'</p></div>'+
+        '<button class="secondary btn-sm" onclick="switchTab(\'receive\');openReceiveConfirm(\''+d.id+'\')">View</button></div>';}).join("")
+      : '<p class="muted">Nothing currently in transit between sites.</p>';
+    const deliveryConfirmHtml = (alerts.awaiting_delivery_confirmation||[]).length
+      ? alerts.awaiting_delivery_confirmation.map(function(d){return '<div class="list-card"><div class="lc-body"><p class="lc-title">'+escapeHtml(d.customer_name||d.reseller_name||d.id)+'</p><p class="lc-sub">'+d.id+' · shipped '+(d.shipped_at||"-").slice(0,10)+'</p></div>'+
+        '<button class="secondary btn-sm" onclick="confirmDeliveryDispatch(\''+d.id+'\')">Confirm delivered</button></div>';}).join("")
+      : '<p class="muted">Nothing awaiting delivery confirmation.</p>';
     document.getElementById("dash-content").innerHTML =
       '<div class="kpi-grid">'+
         '<div class="kpi"><div class="num">Rs '+pnl.net_revenue+'</div><div class="lbl">Net revenue</div></div>'+
@@ -918,7 +980,9 @@ async function loadDashboard(){
       '<p class="muted" style="margin:10px 0 4px;">Overdue work orders ('+alerts.overdue_work_orders.length+')</p>'+overdueHtml+
       '<p class="muted" style="margin:10px 0 4px;">Work orders in progress ('+alerts.pending_work_orders.length+')</p>'+pendingWoHtml+
       '<p class="muted" style="margin:10px 0 4px;">Finished goods still unsold ('+alerts.unsold_stock.length+')</p>'+unsoldHtml+
-      '<p class="muted" style="margin:10px 0 4px;">Finished items with no BOM entered ('+alerts.items_missing_bom.length+')</p>'+missingBomHtml;
+      '<p class="muted" style="margin:10px 0 4px;">Finished items with no BOM entered ('+alerts.items_missing_bom.length+')</p>'+missingBomHtml+
+      '<p class="muted" style="margin:10px 0 4px;">Material in transit between sites ('+(alerts.material_in_transit||[]).length+')</p>'+transitHtml+
+      '<p class="muted" style="margin:10px 0 4px;">Shipped orders awaiting delivery confirmation ('+(alerts.awaiting_delivery_confirmation||[]).length+')</p>'+deliveryConfirmHtml;
   }catch(e){ document.getElementById("dash-content").textContent = e.message; }
 }
 
@@ -1020,7 +1084,7 @@ async function createItem(){
     const name=document.getElementById("it-name").value.trim();
     if(!name){alert("Name required");return;}
     const res=await apiFetch("/items",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      item_type:item_type, name:name,
+      item_type:item_type, name:name, item_code: document.getElementById("it-code").value.trim()||null,
       category_id: parseInt(document.getElementById("it-category").value)||null,
       fabric_id: parseInt(document.getElementById("it-fabric").value)||null,
       work_type_id: parseInt(document.getElementById("it-worktype").value)||null,
@@ -1035,6 +1099,7 @@ async function createItem(){
     if(photoFile){ const fd=new FormData(); fd.append("photo",photoFile); await apiFetch("/items/"+res.id+"/photo",{method:"POST",body:fd}); }
     document.getElementById("item-result").innerHTML='<p style="color:var(--ok);">Added '+res.id+(res.item_code?' — part number: <b>'+res.item_code+'</b>':'')+'</p>';
     document.getElementById("it-name").value="";
+    document.getElementById("it-code").value="";
     document.getElementById("it-category").value="";
     document.getElementById("it-fabric").value="";
     document.getElementById("it-worktype").value="";
@@ -1077,7 +1142,7 @@ async function loadItems(typeFilter){
 async function viewItem(id){
   try{
     const it=await apiFetch("/items/"+id);
-    const lotRows=it.lots_by_site.map(function(l){return '<tr><td>'+l.id+'</td><td>'+l.site_name+'</td><td>'+l.quantity_balance+'</td><td>'+l.source_type+'</td>'+
+    const lotRows=it.lots_by_site.map(function(l){return '<tr><td>'+l.resolved_origin+'</td><td>'+l.site_name+'</td><td>'+l.quantity_balance+'</td><td>'+l.source_type+'</td>'+
       '<td><button class="secondary btn-sm" onclick="viewLotHistory(\''+l.id+'\')">History</button></td></tr>';}).join("");
     const photoThumbs = (it.photos||[]).map(function(p){return '<img src="/api/photo/'+p.r2_key+'" onclick="viewFullPhoto(\''+p.r2_key+'\')" style="width:70px;height:70px;object-fit:cover;border-radius:6px;margin:3px;cursor:zoom-in;">';}).join("");
     document.getElementById("item-detail").innerHTML='<div class="card"><h4 style="margin-top:0;">'+it.name+'</h4>'+
@@ -1085,6 +1150,7 @@ async function viewItem(id){
       (photoThumbs?'<div>'+photoThumbs+'</div>':'<p class="muted">No photos yet.</p>')+
       '<h4>Edit</h4>'+
       '<label>Name</label><input id="ei-name" value="'+it.name.replace(/"/g,"&quot;")+'">'+
+      '<label>Item code / SKU</label><input id="ei-code" value="'+(it.item_code||"").replace(/"/g,"&quot;")+'">'+
       '<label>Color</label><input id="ei-color" value="'+(it.color||"")+'">'+
       '<div class="row"><div><label>Price</label><input id="ei-price" type="number" step="0.01" value="'+(it.price||"")+'"></div><div><label>Cost</label><input id="ei-cost" type="number" step="0.01" value="'+(it.cost||"")+'"></div></div>'+
       '<label>Description</label><textarea id="ei-desc" rows="2">'+(it.description||"")+'</textarea>'+
@@ -1132,7 +1198,7 @@ async function saveBom(itemId){
 async function saveItemEdit(id){
   try{
     await apiFetch("/items/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      name:document.getElementById("ei-name").value.trim(), color:document.getElementById("ei-color").value.trim(),
+      name:document.getElementById("ei-name").value.trim(), item_code:document.getElementById("ei-code").value.trim()||null, color:document.getElementById("ei-color").value.trim(),
       price:parseFloat(document.getElementById("ei-price").value)||null, cost:parseFloat(document.getElementById("ei-cost").value)||null,
       description:document.getElementById("ei-desc").value.trim(),
     })});
@@ -1162,22 +1228,50 @@ async function createSite(){
     const userSel = document.getElementById("site-user-select");
     const res=await apiFetch("/sites",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       name:document.getElementById("site-name").value.trim(), site_type:site_type,
+      address:document.getElementById("site-address").value.trim(), phone:document.getElementById("site-phone").value.trim(),
       worker_user_id: (site_type==="worker" && userSel.value)?parseInt(userSel.value):null })});
     document.getElementById("site-result").innerHTML='<p style="color:var(--ok);">Added '+res.id+'</p>';
     document.getElementById("site-name").value="";
+    document.getElementById("site-address").value="";
+    document.getElementById("site-phone").value="";
     loadSites();
   }catch(e){showError(e.message);}
 }
+let __sitesRaw = null;
 async function loadSites(){
   try{
     const list=await apiFetch("/sites");
+    __sitesRaw = list;
     document.getElementById("site-list").innerHTML = renderCardList(list, {
       icon: function(s){return s.site_type==="worker"?"🧵":"🏬";}, title: function(s){return s.name;},
-      sub: function(s){return s.site_type==="worker"?(s.worker_name?"@"+s.worker_username:"no login linked"):s.site_type;},
-      action: function(s){return s.site_type==="worker"?'<button class="secondary btn-sm" onclick="attachUserToSite(\''+s.id+'\')">'+(s.worker_user_id?"Change":"Attach")+'</button>':"";},
+      sub: function(s){return (s.site_type==="worker"?(s.worker_name?"@"+s.worker_username:"no login linked"):s.site_type)+(s.address?"":" · no address on file");},
+      action: function(s){return (s.site_type==="worker"?'<button class="secondary btn-sm" onclick="attachUserToSite(\''+s.id+'\')">'+(s.worker_user_id?"Change":"Attach")+'</button>':"")+
+        ' <button class="secondary btn-sm" onclick="viewSite(\''+s.id+'\')">Edit</button>';},
       empty: "No sites yet.",
     });
   }catch(e){document.getElementById("site-list").textContent=e.message;}
+}
+function viewSite(id){
+  const s = (__sitesRaw||[]).find(function(x){return x.id===id;});
+  if(!s){ showError("Site not found"); return; }
+  document.getElementById("site-detail").innerHTML = '<div class="card"><div class="code-big">'+s.name+'</div><p class="muted">'+s.id+' | '+s.site_type+'</p>'+
+    '<label>Name</label><input id="es-name" value="'+s.name.replace(/"/g,"&quot;")+'">'+
+    '<label>Address</label><textarea id="es-address" rows="2">'+(s.address||"")+'</textarea>'+
+    '<label>Phone</label><input id="es-phone" value="'+(s.phone||"")+'">'+
+    '<label>Notes</label><textarea id="es-notes" rows="2">'+(s.notes||"")+'</textarea>'+
+    '<button class="secondary" onclick="saveSiteEdit(\''+id+'\')">Save changes</button><div id="site-edit-msg"></div></div>';
+  scrollToDetail("site-detail");
+}
+async function saveSiteEdit(id){
+  try{
+    const body = {
+      name:document.getElementById("es-name").value.trim(), address:document.getElementById("es-address").value.trim(),
+      phone:document.getElementById("es-phone").value.trim(), notes:document.getElementById("es-notes").value.trim(),
+    };
+    await apiFetch("/sites/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    document.getElementById("site-edit-msg").innerHTML='<p style="color:var(--ok);">Saved.</p>';
+    loadSites();
+  }catch(e){ document.getElementById("site-edit-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
 async function attachUserToSite(siteId){
   try{
@@ -1210,11 +1304,11 @@ async function loadStockBySite(){
         const thumb = agg.lots[0].item_photo_key ? '<img src="/api/photo/'+agg.lots[0].item_photo_key+'" style="width:40px;height:40px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:6px;">' : '';
         return '<tr><td>'+thumb+agg.item_name+' ('+(agg.item_code||'-')+')</td><td>'+agg.total+'</td><td>'+
           '<button class="secondary btn-sm" onclick="toggleLotExpand(\''+rowId+'\')">Show lots</button></td></tr>'+
-          '<tr id="'+rowId+'" style="display:none;"><td colspan="3">'+agg.lots.map(function(l){return '<div class="row" style="margin:4px 0;align-items:center;"><span style="flex:2;">'+l.id+'</span>'+
+          '<tr id="'+rowId+'" style="display:none;"><td colspan="3">'+agg.lots.map(function(l){return '<div class="row" style="margin:4px 0;align-items:center;"><span style="flex:2;">'+l.resolved_origin+'</span>'+
             '<span class="muted" style="flex:2;font-size:0.8rem;">Received: '+(l.created_at||"-").slice(0,10)+'</span>'+
             '<input id="lotqty-'+l.id+'" type="number" step="0.1" value="'+l.quantity_balance+'" style="flex:1;">'+
             '<button class="secondary btn-sm" onclick="saveLotQty(\''+l.id+'\')">Save</button>'+
-            '<button class="secondary btn-sm" data-qr-code="'+escapeHtml((agg.item_code||itemId)+"|"+l.id+"|"+agg.item_name)+'" data-qr-label="'+escapeHtml(agg.item_name+" - "+l.id)+'" onclick="printQR(this.dataset.qrCode,this.dataset.qrLabel)">QR</button>'+
+            '<button class="secondary btn-sm" data-qr-code="'+escapeHtml((agg.item_code||itemId)+"|"+l.resolved_origin+"|"+agg.item_name)+'" data-qr-label="'+escapeHtml(agg.item_name+" - "+l.resolved_origin)+'" onclick="printQR(this.dataset.qrCode,this.dataset.qrLabel)">QR</button>'+
             '<button class="secondary btn-sm" onclick="viewLotHistory(\''+l.id+'\')">History</button></div>';}).join("")+'</td></tr>';
       }).join("");
       return '<p><b>'+entry.site.name+'</b> ('+entry.site.site_type+')</p>'+(rows?'<table><tr><th>Item</th><th>Total qty</th><th></th></tr>'+rows+'</table>':'<p class="muted">Empty</p>');
@@ -1237,7 +1331,7 @@ function updateTransferLotOptions(){
   if(!siteId || !__stockBySiteRaw){ lotSelect.innerHTML = '<option value="">-- select a From site first --</option>'; return; }
   const entry = __stockBySiteRaw.sites.find(function(e){return e.site.id===siteId;});
   if(!entry || !entry.lots.length){ lotSelect.innerHTML = '<option value="">Nothing in stock at this site</option>'; return; }
-  lotSelect.innerHTML = entry.lots.map(function(l){return '<option value="'+l.id+'" data-max="'+l.quantity_balance+'">'+l.id+' — '+l.item_name+' ('+l.quantity_balance+' available)</option>';}).join("");
+  lotSelect.innerHTML = entry.lots.map(function(l){return '<option value="'+l.id+'" data-max="'+l.quantity_balance+'">'+l.resolved_origin+' — '+l.item_name+' ('+l.quantity_balance+' available)</option>';}).join("");
   updateTransferMaxQty();
 }
 function updateTransferMaxQty(){
@@ -1590,7 +1684,7 @@ async function loadWOs(){
 async function viewWO(id){
   try{
     const w=await apiFetch("/work-orders/"+id);
-    const issueRows=(w.issues||[]).map(function(i){return '<tr><td>'+i.item_name+'</td><td>'+i.lot_id+'</td><td>'+i.quantity_issued+'</td><td>'+i.status+'</td></tr>';}).join("");
+    const issueRows=(w.issues||[]).map(function(i){return '<tr><td>'+i.item_name+'</td><td>'+i.resolved_origin+'</td><td>'+i.quantity_issued+'</td><td>'+i.status+'</td></tr>';}).join("");
     const canStart = w.stage==="Order Placed" || w.stage==="Material Received";
     const canCancel = !w.closed_at && !w.cancelled_at && w.stage!=="Work Shipped";
     const openRework = (w.rework_issues||[]).filter(function(r){return r.status!=="received";});
@@ -1601,9 +1695,16 @@ async function viewWO(id){
         '<button class="secondary btn-sm" onclick="confirmReworkReturn(\''+r.id+'\',\''+w.id+'\')">Confirm return</button><div id="rwk-msg-'+r.id+'"></div></div>';}).join("")
       : (canCancel?'<h4>Send for rework</h4><p class="muted">Lot: '+(w.rework_lot_id||"-")+'</p><button class="secondary" onclick="issueRework(\''+w.id+'\')">Create dispatch</button><div id="wo-rework-issue-msg"></div>':'')
     ) : "";
+    const materialStatusLabels = {
+      not_assigned: "Material not yet assigned", assigned: "Material assigned — awaiting pickup",
+      in_transit: "Material in transit", at_worker_unverified: "Material received — awaiting worker verification",
+      verified: "Material verified — ready to work",
+    };
+    const materialStatusColor = w.material_status==="verified" ? "var(--ok)" : (w.material_status==="not_assigned" ? "var(--warn)" : "inherit");
     document.getElementById("wo-detail").innerHTML='<div class="card"><div class="code-big">'+w.id+'</div>'+
       '<p>'+w.description+' <span class="muted">('+w.job_type+')</span></p><p>Item: <b>'+(w.intended_item_name||"")+'</b>'+(w.intended_item_code?' ('+w.intended_item_code+')':'')+'</p><p>Worker: <b>'+(w.worker_site_name||"")+'</b> | Progress: '+w.received_quantity_total+'/'+w.target_quantity+' | Placed: '+(w.order_date||w.created_at||"-").slice(0,10)+'</p>'+
       '<p>Stage: <span class="stage-badge">'+(w.cancelled_at?"Cancelled":w.stage)+'</span>'+(canStart?' <button class="secondary btn-sm" onclick="advanceStage(\''+w.id+'\',\'Work Started\')">Mark Work Started</button>':'')+'</p>'+
+      (w.job_type==="production"?'<p style="color:'+materialStatusColor+';font-weight:600;">'+(materialStatusLabels[w.material_status]||w.material_status)+'</p>':'')+
       '<p class="muted">Material Received and Work Shipped are set automatically by the dispatch engine, not manually here.</p>'+
       (canCancel?'<button class="secondary btn-sm" onclick="cancelWO(\''+w.id+'\')" style="border-color:var(--warn);color:var(--warn);">Cancel this job</button><p class="muted">Wrong worker assigned? Cancel this and create a fresh work order for the right person — reassigning isn\'t supported, since it would leave material tracking pointing at the wrong site.</p><div id="wo-cancel-msg"></div>':'')+
       reworkSection+
@@ -1637,7 +1738,7 @@ async function loadIssueLotOptions(woId){
   try{
     const res = await apiFetch("/work-orders/"+woId+"/available-lots?item_id="+itemId);
     lotSelect.innerHTML = res.lots.length
-      ? res.lots.map(function(l){return '<option value="'+l.id+'" data-max="'+l.quantity_balance+'" data-site="'+l.site_name+'">'+l.id+' — '+l.site_name+' ('+l.quantity_balance+' available)</option>';}).join("")
+      ? res.lots.map(function(l){return '<option value="'+l.id+'" data-max="'+l.quantity_balance+'" data-site="'+l.site_name+'">'+l.resolved_origin+' — '+l.site_name+' ('+l.quantity_balance+' available)</option>';}).join("")
       : '<option value="">No stock anywhere for this item</option>';
     lotSelect.onchange = function(){
       const opt = lotSelect.options[lotSelect.selectedIndex];
@@ -1722,7 +1823,7 @@ async function loadMyWork(){
     const stockRows = wp.own_stock.map(function(l){return '<div class="list-card">'+
       '<input type="checkbox" class="mystock-check" data-lot-id="'+l.id+'" data-max="'+l.quantity_balance+'" style="width:auto;margin-right:8px;">'+
       '<div class="lc-icon">'+(l.source_type==="work_order_output"?"🧵":"📋")+'</div>'+
-      '<div class="lc-body"><p class="lc-title">'+l.item_name+'</p><p class="lc-sub">'+l.id+'</p></div>'+
+      '<div class="lc-body"><p class="lc-title">'+l.item_name+'</p><p class="lc-sub">'+l.resolved_origin+'</p></div>'+
       '<div class="lc-right"><input type="number" class="mystock-qty" data-lot-id="'+l.id+'" value="'+l.quantity_balance+'" max="'+l.quantity_balance+'" step="0.1" style="width:70px;" disabled></div></div>';}).join("");
     const stockHtml = wp.own_stock.length
       ? '<div class="card-list">'+stockRows+'</div><button class="secondary" onclick="shipSelectedStock()" style="margin-top:8px;">Ship selected</button><div id="mystock-ship-msg"></div>'
@@ -2100,7 +2201,8 @@ async function viewMyWorkOrder(id){
     const w = await apiFetch("/work-orders/"+id);
     const photoThumbs = (w.photos||[]).map(function(p){return '<img src="/api/photo/'+p.r2_key+'" onclick="viewFullPhoto(\''+p.r2_key+'\')" style="width:64px;height:64px;object-fit:cover;border-radius:6px;margin:3px;cursor:zoom-in;">';}).join("");
     const photoSection = (w.photos&&w.photos.length) ? '<p class="muted">'+w.photos.length+' photo(s):</p><div>'+photoThumbs+'</div>' : '';
-    const itemLine = '<p>Item: <b>'+(w.intended_item_name||"")+'</b>'+(w.intended_item_code?' ('+w.intended_item_code+')':'')+'</p>';
+    const intendedThumb = w.intended_item_photo_key ? '<img src="/api/photo/'+w.intended_item_photo_key+'" onclick="viewFullPhoto(\''+w.intended_item_photo_key+'\')" style="width:48px;height:48px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:6px;cursor:zoom-in;">' : '';
+    const itemLine = '<p>'+intendedThumb+'Item: <b>'+(w.intended_item_name||"")+'</b>'+(w.intended_item_code?' ('+w.intended_item_code+')':'')+'</p>';
     const isDone = w.stage==="Work Shipped" || w.closed_at;
     if(isDone){
       document.getElementById("mywork-detail").innerHTML = '<div class="card"><div class="code-big">'+w.id+'</div><p>'+w.description+'</p>'+itemLine+
@@ -2122,8 +2224,9 @@ async function viewMyWorkOrder(id){
     let materialCheckSection = "";
     if(canStartStage && openIssues.length){
       materialCheckSection = '<h4>Verify your raw material before starting</h4>'+
-        openIssues.map(function(i){return '<div class="row" style="margin:6px 0;align-items:center;">'+
-          '<span style="flex:1;">'+i.item_name+' — '+i.quantity_issued+(i.verified_at?' <b style="color:var(--ok);">✓ verified</b>':'')+'</span>'+
+        openIssues.map(function(i){const thumb = i.item_photo_key ? '<img src="/api/photo/'+i.item_photo_key+'" onclick="viewFullPhoto(\''+i.item_photo_key+'\')" style="width:40px;height:40px;object-fit:cover;border-radius:6px;margin-right:6px;cursor:zoom-in;">' : '';
+          return '<div class="row" style="margin:6px 0;align-items:center;">'+
+          '<span style="flex:1;">'+thumb+i.item_name+' — '+i.quantity_issued+(i.verified_at?' <b style="color:var(--ok);">✓ verified</b>':'')+'</span>'+
           (i.verified_at?'':'<input id="verify-item-'+i.id+'" placeholder="Item ID" style="flex:1;">'+
             '<input id="verify-lot-'+i.id+'" placeholder="Lot ID" style="flex:1;">'+
             '<button type="button" class="secondary btn-sm" onclick="scanAndFillVerify(\''+i.id+'\')">📷</button>'+
@@ -2233,15 +2336,31 @@ async function openDispatchAction(dispatchId){
       return '<tr><td>'+thumb+it.item_name+' ('+(it.item_code||'-')+')'+(it.item_description?'<br><span class="muted" style="font-size:0.75rem;">'+it.item_description+'</span>':'')+'<br><span class="muted" style="font-size:0.75rem;">ID: '+(it.resolved_origin||'-')+'</span></td><td>'+it.scanned_quantity+'</td><td>picked'+(it.mismatch_flag?' <b style="color:var(--warn);">(quantity mismatch)</b>':'')+'</td></tr>';
     }).join("");
     const allPicked = d.items.every(function(it){return it.scanned_quantity!==null;});
+    const photoThumbs = (d.photos||[]).map(function(p){return '<img src="/api/photo/'+p.r2_key+'" onclick="viewFullPhoto(\''+p.r2_key+'\')" style="width:56px;height:56px;object-fit:cover;border-radius:6px;margin:3px;cursor:zoom-in;">';}).join("");
     document.getElementById("dispatch-action-area").innerHTML = '<div class="card"><div class="code-big">'+d.id+'</div><p>'+d.dispatch_type+' | status: '+d.status+'</p>'+
+      (d.from_site_name?'<p class="muted" style="margin:0 0 6px;white-space:pre-line;"><b>Ship from '+escapeHtml(d.from_site_name)+':</b> '+(d.from_site_address?escapeHtml(d.from_site_address):'no address on file')+(d.from_site_phone?' · '+escapeHtml(d.from_site_phone):'')+'</p>':'')+
       '<div class="row" style="align-items:flex-start;"><p class="muted" style="flex:1;white-space:pre-line;margin:0;"><b>Shipping to '+escapeHtml(d.shipping_name||d.to_site_name||"")+':</b><br>'+(d.shipping_address?escapeHtml(d.shipping_address):'<span style="color:var(--warn);">No address on file — add one on the Sites or Parties tab.</span>')+'</p>'+
         '<button type="button" class="secondary btn-sm" data-ship-name="'+escapeHtml(d.shipping_name||d.to_site_name||"")+'" data-ship-address="'+escapeHtml(d.shipping_address||"")+'" onclick="printAddressLabelFromButton(this)">Print shipping label</button></div>'+
       '<div style="overflow-x:auto;"><table><tr><th>Item</th><th>Qty</th><th></th></tr>'+itemRows+'</table></div>'+
       (allPicked && d.status!=="shipped" ? '<label>Courier</label><input id="ship-courier"><label>Tracking (optional)</label><input id="ship-tracking">'+
         '<button class="secondary" onclick="shipThisDispatch(\''+d.id+'\')">Pack & Send</button><div id="ship-msg"></div>' : '')+
+      (d.status==="picked"?'<button class="secondary btn-sm" onclick="undoPickDispatch(\''+d.id+'\')" style="margin-top:10px;">Undo pick (start over)</button><div id="undo-pick-msg"></div>':'')+
       (["pending_pick","picked"].includes(d.status)?'<button class="secondary" onclick="cancelDispatch(\''+d.id+'\')" style="margin-top:10px;color:var(--warn);border-color:var(--warn);">Cancel this dispatch</button><div id="cancel-msg"></div>':'')+
+      '<h4>Photo of the goods</h4>'+(photoThumbs?'<div>'+photoThumbs+'</div>':'<p class="muted">No photos yet.</p>')+
+      '<input type="file" accept="image/*" id="dispatch-photo-'+d.id+'"><button class="secondary btn-sm" onclick="uploadDispatchPhoto(\''+d.id+'\')">Upload</button><div id="dispatch-photo-msg"></div>'+
       '</div>';
   }catch(e){showError(e.message);}
+}
+async function undoPickDispatch(dispatchId){
+  try{
+    await apiFetch("/dispatches/"+dispatchId+"/cancel-pick",{method:"POST",headers:{"Content-Type":"application/json"}});
+    openDispatchAction(dispatchId); loadDispatchQueue();
+  }catch(e){ document.getElementById("undo-pick-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
+}
+async function uploadDispatchPhoto(dispatchId){
+  const f=document.getElementById("dispatch-photo-"+dispatchId).files[0]; if(!f){alert("Choose a file");return;}
+  const fd=new FormData(); fd.append("photo",f);
+  try{ await apiFetch("/dispatches/"+dispatchId+"/photo",{method:"POST",body:fd}); openDispatchAction(dispatchId); }catch(e){ document.getElementById("dispatch-photo-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
 async function cancelDispatch(dispatchId){
   if(!confirm("Cancel this dispatch? This can't be undone.")) return;
@@ -2298,11 +2417,21 @@ async function loadDispatchHistory(){
     const filtered = list.filter(function(d){return d.status==="shipped"||d.status==="received";}).slice(0,50);
     document.getElementById("dispatch-history").innerHTML = renderCardList(filtered, {
       icon: function(d){return d.has_receive_mismatch?"⚠️":"✅";}, title: function(d){return d.id+' · '+d.dispatch_type+(d.has_receive_mismatch?' <span style="color:var(--warn);font-weight:700;">QUANTITY MISMATCH</span>':'');},
-      sub: function(d){return (d.item_summary||"-")+(d.shipping_name?' · Ship to: '+escapeHtml(d.shipping_name):'')+' · '+(d.from_site_name||"-")+' → '+(d.to_site_name||"-")+' · '+(d.courier||"-")+' '+(d.tracking_id||"")+' · '+d.status+' · '+(d.shipped_at||d.created_at||"-").slice(0,10);},
-      action: function(d){return '<button class="secondary btn-sm" onclick="editDispatchTracking(\''+d.id+'\')">Tracking</button>';},
+      sub: function(d){return (d.item_summary||"-")+(d.shipping_name?' · Ship to: '+escapeHtml(d.shipping_name):'')+' · '+(d.from_site_name||"-")+' → '+(d.to_site_name||"-")+' · '+(d.courier||"-")+' '+(d.tracking_id||"")+' · '+d.status+
+        (d.dispatch_type==="customer_shipment"?(d.delivery_confirmed_at?' · delivered '+d.delivery_confirmed_at.slice(0,10):' · <span style="color:var(--warn);">delivery not yet confirmed</span>'):'')+
+        ' · '+(d.shipped_at||d.created_at||"-").slice(0,10);},
+      action: function(d){return '<button class="secondary btn-sm" onclick="editDispatchTracking(\''+d.id+'\')">Tracking</button>'+
+        (d.dispatch_type==="customer_shipment" && d.status==="shipped" && !d.delivery_confirmed_at?' <button class="secondary btn-sm" onclick="confirmDeliveryDispatch(\''+d.id+'\')">Confirm delivered</button>':'');},
       empty: "Nothing shipped yet in this range.",
     });
   }catch(e){document.getElementById("dispatch-history").textContent=e.message;}
+}
+async function confirmDeliveryDispatch(id){
+  if(!confirm("Confirm the customer has actually received this shipment?")) return;
+  try{
+    await apiFetch("/dispatches/"+id+"/confirm-delivery",{method:"POST",headers:{"Content-Type":"application/json"}});
+    loadDispatchHistory();
+  }catch(e){showError(e.message);}
 }
 async function editDispatchTracking(id){
   try{
@@ -2368,16 +2497,24 @@ async function openReceiveConfirm(dispatchId){
       }
     }
     const isAdmin = getSession().role==="admin";
+    const recvPhotoThumbs = (d.photos||[]).map(function(p){return '<img src="/api/photo/'+p.r2_key+'" onclick="viewFullPhoto(\''+p.r2_key+'\')" style="width:56px;height:56px;object-fit:cover;border-radius:6px;margin:3px;cursor:zoom-in;">';}).join("");
     document.getElementById("receive-confirm-area").innerHTML = '<div class="card"><h4 style="margin-top:0;">Confirm '+d.id+'</h4>'+
-      '<p class="muted">From: '+(d.from_site_name||"-")+'</p>'+
+      '<p class="muted" style="white-space:pre-line;">From: '+(d.from_site_name||"-")+(d.from_site_address?' — '+escapeHtml(d.from_site_address):'')+(d.from_site_phone?' · '+escapeHtml(d.from_site_phone):'')+'</p>'+
       '<table><tr><th>Item</th><th>Origin ID</th><th>Shipped</th><th>Actually received</th><th></th></tr>'+rows+'</table>'+
       (isReturnShipment?'<label>Labor cost for this job</label><input id="recv-labor-cost" type="number" step="0.01">':'')+
       reconHtml+
+      '<h4>Photo of the goods received</h4>'+(recvPhotoThumbs?'<div>'+recvPhotoThumbs+'</div>':'<p class="muted">No photos yet.</p>')+
+      '<input type="file" accept="image/*" id="recv-photo-'+d.id+'"><button class="secondary btn-sm" onclick="uploadReceivePhoto(\''+d.id+'\')">Upload</button><div id="recv-photo-msg"></div>'+
       '<button class="secondary" onclick="submitReceiveConfirm(\''+d.id+'\')">Confirm</button>'+
       (isAdmin?' <button class="secondary" onclick="closeDispatchAsLoss(\''+d.id+'\')" style="color:var(--warn);border-color:var(--warn);">This never arrived — close as loss</button>':'')+
       '<div id="recv-confirm-msg"></div></div>';
     window.__pendingDispatchItems = d.items;
   }catch(e){showError(e.message);}
+}
+async function uploadReceivePhoto(dispatchId){
+  const f=document.getElementById("recv-photo-"+dispatchId).files[0]; if(!f){alert("Choose a file");return;}
+  const fd=new FormData(); fd.append("photo",f);
+  try{ await apiFetch("/dispatches/"+dispatchId+"/photo",{method:"POST",body:fd}); openReceiveConfirm(dispatchId); }catch(e){ document.getElementById("recv-photo-msg").innerHTML='<p style="color:var(--warn);">'+e.message+'</p>'; }
 }
 async function closeDispatchAsLoss(dispatchId){
   if(!confirm("Close this dispatch as a loss? This records the material as written off — the raw balance sheet loss, not just removing it from the queue. This can't be undone.")) return;
@@ -2404,7 +2541,7 @@ async function submitReceiveConfirm(dispatchId){
       let itemCode = created.item_id;
       let itemName = created.item_id;
       try{ const itemDetail = await apiFetch("/items/"+created.item_id); itemCode = itemDetail.item_code||created.item_id; itemName = itemDetail.name||created.item_id; }catch(e){}
-      qrButtons.push('<div style="margin:4px 0;"><button class="secondary btn-sm" data-qr-code="'+escapeHtml(itemCode+"|"+created.lot_id+"|"+itemName)+'" data-qr-label="'+escapeHtml(itemName+" - "+created.lot_id)+'" onclick="printQR(this.dataset.qrCode,this.dataset.qrLabel)">Get QR — '+created.lot_id+'</button> '+
+      qrButtons.push('<div style="margin:4px 0;"><button class="secondary btn-sm" data-qr-code="'+escapeHtml(itemCode+"|"+created.resolved_origin+"|"+itemName)+'" data-qr-label="'+escapeHtml(itemName+" - "+created.resolved_origin)+'" onclick="printQR(this.dataset.qrCode,this.dataset.qrLabel)">Get QR — '+created.resolved_origin+'</button> '+
         '<button class="secondary btn-sm" onclick="voidReceipt(\''+created.lot_id+'\',\'recv-confirm-msg\')" style="color:var(--warn);border-color:var(--warn);">Wrong item — void this</button></div>');
     }
     document.getElementById("recv-confirm-msg").innerHTML='<p style="color:var(--ok);">Confirmed — stock now credited.'+(res.work_order_closed?' Work order closed.':'')+reconMsg+'</p>'+
@@ -2672,7 +2809,7 @@ async function loadSaleLineLots(lineId){
   try{
     const item = await apiFetch("/items/"+itemId);
     lotSelect.innerHTML = '<option value="">-- FIFO (oldest first) --</option>'+
-      item.lots_by_site.map(function(l){return '<option value="'+l.id+'">'+l.id+' — '+l.site_name+' ('+l.quantity_balance+' available)</option>';}).join("");
+      item.lots_by_site.map(function(l){return '<option value="'+l.id+'">'+l.resolved_origin+' — '+l.site_name+' ('+l.quantity_balance+' available)</option>';}).join("");
     if(descField && !descField.value.trim()) descField.value = item.name;
   }catch(e){showError(e.message);}
 }
@@ -2724,6 +2861,7 @@ async function createSale(){
     const res=await apiFetch("/sales",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       lines:lines, customer_party_id:custSel.value||null, customer_name:(custParty&&!isReseller)?custParty.name:null,
       reseller_name:(custParty&&isReseller)?custParty.name:null, fulfills_customer_order_id: shouldFulfill?prefillFulfillsCOId:null,
+      account_id: parseInt(document.getElementById("s-account").value)||null,
       ship_requested: shipRequested, shipping_address: shipRequested?shipAddress:null })});
     document.getElementById("sale-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+' — total Rs '+res.total_amount+(shouldFulfill?' — '+prefillFulfillsCOId+' marked billed':'')+(res.shipment_dispatch_id?' — dispatch '+res.shipment_dispatch_id+' created':'')+'</p>';
     document.getElementById("s-lines").innerHTML="";
@@ -2786,7 +2924,7 @@ async function loadSaleLinesForReturn(){
 }
 async function createRefund(){
   try{
-    await apiFetch("/refunds",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sale_id:document.getElementById("ref-sale-select").value,amount:parseFloat(document.getElementById("ref-amount").value),reason:document.getElementById("ref-reason").value.trim()})});
+    await apiFetch("/refunds",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sale_id:document.getElementById("ref-sale-select").value,amount:parseFloat(document.getElementById("ref-amount").value),account_id:parseInt(document.getElementById("ref-account").value)||null,reason:document.getElementById("ref-reason").value.trim()})});
     document.getElementById("refund-msg").innerHTML='<p style="color:var(--ok);">Recorded.</p>';
     document.getElementById("ref-amount").value="";
     document.getElementById("ref-reason").value="";
@@ -2879,6 +3017,7 @@ async function createSupplierBill(){
     }
     const res = await apiFetch("/supplier-bills",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       purchase_order_id: purchase_order_id, supplier_party_id: supplierSel.value||null, supplier_name: supplierParty?supplierParty.name:"Cash purchase",
+      account_id: parseInt(document.getElementById("sb-account").value)||null,
       bill_number:document.getElementById("sb-number").value.trim(), bill_date:document.getElementById("sb-date").value||null, description:document.getElementById("sb-desc").value.trim(), lines:lines })});
     document.getElementById("sb-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+' — Rs '+res.amount+'</p>';
     document.getElementById("sb-supplier-select").value="";
@@ -2919,7 +3058,7 @@ async function viewSupplierBill(id){
 
 // ---------------- Expenses ----------------
 async function createExpense(){
-  try{ const res=await apiFetch("/expenses",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({description:document.getElementById("e-desc").value.trim(),expense_category_id:parseInt(document.getElementById("e-category-select").value),amount:parseFloat(document.getElementById("e-amount").value)})});
+  try{ const res=await apiFetch("/expenses",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({description:document.getElementById("e-desc").value.trim(),expense_category_id:parseInt(document.getElementById("e-category-select").value),amount:parseFloat(document.getElementById("e-amount").value),account_id:parseInt(document.getElementById("e-account").value)||null})});
     document.getElementById("expense-result").innerHTML='<p style="color:var(--ok);">Recorded '+res.id+'</p>';
     document.getElementById("e-desc").value="";
     document.getElementById("e-amount").value="";
@@ -2954,6 +3093,7 @@ async function submitPayment(direction){
   const amtId = direction==="receivable"?"recv-amount":(direction==="payable"?"pay-amount":"wp-amount");
   const areaId = direction==="receivable"?"recv-bills":(direction==="payable"?"pay-bills":"wp-bills");
   const resultId = direction==="receivable"?"recv-result":(direction==="payable"?"pay-result":"wp-result");
+  const acctId = direction==="receivable"?"recv-account":(direction==="payable"?"pay-account":"wp-account");
   try{
     const party_id = document.getElementById(selId).value;
     const amount = parseFloat(document.getElementById(amtId).value);
@@ -2962,7 +3102,8 @@ async function submitPayment(direction){
       .map(function(el){return {bill_type:el.dataset.billType, bill_id:el.dataset.billId, amount_applied:parseFloat(el.value)};});
     const refFieldId = direction==="receivable"?"recv-ref":(direction==="payable"?"pay-ref":null);
     const refField = refFieldId ? document.getElementById(refFieldId) : null;
-    const res = await apiFetch("/payments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({party_id:party_id,direction:direction,amount:amount,reference:refField?refField.value.trim():null,allocations:allocations})});
+    const acctField = document.getElementById(acctId);
+    const res = await apiFetch("/payments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({party_id:party_id,direction:direction,amount:amount,account_id:acctField&&acctField.value?parseInt(acctField.value):null,reference:refField?refField.value.trim():null,allocations:allocations})});
     document.getElementById(resultId).innerHTML='<p style="color:var(--ok);">Recorded'+(res.unallocated?' — Rs '+res.unallocated+' left as an advance on their account':'')+'</p>';
     document.getElementById(amtId).value=""; loadOutstandingFor(direction);
     if(direction==="receivable") loadReceivableHistory();

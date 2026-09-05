@@ -12,6 +12,7 @@ export async function onRequestGet({ request, env, params }) {
      WHERE l.item_id = ? AND l.quantity_balance > 0 AND (l.site_id = ? OR s.site_type = 'store')
      ORDER BY (s.site_type = 'store') ASC, l.created_at ASC`
   ).bind(itemId, order.worker_site_id).all();
+  for (const l of lots) l.resolved_origin = l.origin_lot_id || l.id;
 
   return Response.json({ lots });
 }

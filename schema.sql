@@ -53,6 +53,7 @@ CREATE TABLE sites (
   worker_user_id INTEGER REFERENCES users(id),
   worker_party_id TEXT,             -- links to parties.id — every worker site has a party for payments/advances
   address TEXT,
+  phone TEXT,
   notes TEXT,
   active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now'))
@@ -183,6 +184,8 @@ CREATE TABLE dispatches (
   tracking_id TEXT,
   shipped_at TEXT,
   received_at TEXT,
+  delivery_confirmed_at TEXT,        -- customer_shipment only: when the store confirmed the customer actually received it — the real end of the loop, distinct from just being shipped
+  delivery_confirmed_by TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -362,6 +365,7 @@ CREATE TABLE accounts (
   account_type TEXT NOT NULL,
   parent_account_id INTEGER REFERENCES accounts(id),
   party_id TEXT,
+  is_cash_or_bank INTEGER DEFAULT 0, -- flags the accounts that should appear as a "which account?" choice when recording a payment — admin-added heads like Bank A, Cash B, etc, alongside the two built-in ones below
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -385,9 +389,10 @@ CREATE TABLE journal_lines (
 CREATE INDEX idx_journal_lines_account ON journal_lines(account_id);
 CREATE INDEX idx_journal_lines_entry ON journal_lines(journal_entry_id);
 
+INSERT INTO accounts (code, name, account_type, is_cash_or_bank) VALUES
+  ('1000', 'Cash', 'asset', 1),
+  ('1010', 'Bank', 'asset', 1);
 INSERT INTO accounts (code, name, account_type) VALUES
-  ('1000', 'Cash', 'asset'),
-  ('1010', 'Bank', 'asset'),
   ('1100', 'Accounts Receivable', 'asset'),
   ('1200', 'Inventory — Raw Material', 'asset'),
   ('1300', 'Tax Input Credit', 'asset'),
@@ -489,6 +494,7 @@ CREATE TABLE expenses (
   expense_category_id INTEGER REFERENCES expense_categories(id),
   paid_by TEXT,
   amount REAL NOT NULL,
+  account_id INTEGER REFERENCES accounts(id),
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -502,6 +508,7 @@ CREATE TABLE payments (
   method TEXT,
   reference TEXT,
   notes TEXT,
+  account_id INTEGER REFERENCES accounts(id), -- which cash/bank account this actually moved through
   created_by TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );

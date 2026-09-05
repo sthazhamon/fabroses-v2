@@ -7,7 +7,7 @@ export async function onRequestGet({ request, env }) {
   const url = new URL(request.url);
   const partyId = url.searchParams.get("party_id");
   const direction = url.searchParams.get("direction");
-  let q = "SELECT p.*, pt.name AS party_name FROM payments p LEFT JOIN parties pt ON pt.id = p.party_id";
+  let q = "SELECT p.*, pt.name AS party_name, a.name AS account_name FROM payments p LEFT JOIN parties pt ON pt.id = p.party_id LEFT JOIN accounts a ON a.id = p.account_id";
   const conditions = [];
   const params = [];
   if (partyId) { conditions.push("p.party_id = ?"); params.push(partyId); }
@@ -20,13 +20,20 @@ export async function onRequestGet({ request, env }) {
 
 export async function onRequestPost({ request, env, data }) {
   const body = await request.json();
-  const { party_id, direction, amount, payment_date, method, reference, notes, allocations } = body;
+  const { party_id, direction, amount, payment_date, method, reference, notes, allocations, account_id } = body;
 
   if (!party_id || !["receivable", "payable", "worker"].includes(direction) || amount == null) {
     return Response.json({ error: "party_id, a valid direction, and amount are required" }, { status: 400 });
   }
   const party = await env.DB.prepare("SELECT * FROM parties WHERE id = ?").bind(party_id).first();
   if (!party) return Response.json({ error: "Party not found" }, { status: 404 });
+
+  let cashOrBankAccountId = null;
+  if (account_id) {
+    const chosen = await env.DB.prepare("SELECT id FROM accounts WHERE id = ? AND is_cash_or_bank = 1").bind(account_id).first();
+    if (!chosen) return Response.json({ error: "account_id must be a cash or bank account" }, { status: 400 });
+    cashOrBankAccountId = chosen.id;
+  }
 
   const allocList = allocations || [];
   const totalAllocated = allocList.reduce((s, a) => s + a.amount_applied, 0);
@@ -38,8 +45,8 @@ export async function onRequestPost({ request, env, data }) {
   const effectiveDate = payment_date || new Date().toISOString().slice(0, 10);
 
   await env.DB.prepare(
-    "INSERT INTO payments (id, party_id, party_name, direction, amount, payment_date, method, reference, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).bind(id, party_id, party.name, direction, amount, effectiveDate, method || null, reference || null, notes || null, data.user?.name || "unknown").run();
+    "INSERT INTO payments (id, party_id, party_name, direction, amount, payment_date, method, reference, notes, account_id, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, party_id, party.name, direction, amount, effectiveDate, method || null, reference || null, notes || null, cashOrBankAccountId, data.user?.name || "unknown").run();
 
   const pointsAwards = [];
   const milestoneAchievements = [];
@@ -59,7 +66,7 @@ export async function onRequestPost({ request, env, data }) {
 
   if (amount > 0) {
     const partyAccountId = await getOrCreatePartyAccount(env, party_id);
-    const cashId = await accountFixedId(env, "1000");
+    const cashId = cashOrBankAccountId || (await accountFixedId(env, "1000"));
     const lines = direction === "receivable"
       ? [{ account_id: cashId, debit: amount }, { account_id: partyAccountId, credit: amount }]
       : [{ account_id: partyAccountId, debit: amount }, { account_id: cashId, credit: amount }];

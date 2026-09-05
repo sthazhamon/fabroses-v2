@@ -41,6 +41,22 @@ export async function confirmPick(env, dispatchId, { item_id, lot_id, scanned_qu
   return { ok: true, mismatch: mismatchQty, dispatch_item_id: match.id };
 }
 
+// Undoes picking on a dispatch — clears every scanned/mismatch flag and
+// drops status back to 'pending_pick', so it reappears in the pending-pick
+// queue for a fresh, correct scan. Distinct from cancelling the dispatch
+// outright: nothing here is lost, no stock has moved yet at this stage
+// (that only happens at ship time), so this is purely undoing data entry.
+export async function cancelPick(env, dispatchId) {
+  const dispatch = await env.DB.prepare("SELECT * FROM dispatches WHERE id = ?").bind(dispatchId).first();
+  if (!dispatch) return { error: "Dispatch not found" };
+  if (dispatch.status !== "picked") {
+    return { error: `Can't undo a pick — this dispatch is at "${dispatch.status}", not "picked".` };
+  }
+  await env.DB.prepare("UPDATE dispatch_items SET scanned_quantity = NULL, mismatch_flag = 0 WHERE dispatch_id = ?").bind(dispatchId).run();
+  await env.DB.prepare("UPDATE dispatches SET status = 'pending_pick' WHERE id = ?").bind(dispatchId).run();
+  return { ok: true };
+}
+
 export async function shipDispatch(env, dispatchId, { courier, tracking_id }, actorName) {
   const dispatch = await env.DB.prepare("SELECT * FROM dispatches WHERE id = ?").bind(dispatchId).first();
   if (!dispatch) return { error: "Dispatch not found" };

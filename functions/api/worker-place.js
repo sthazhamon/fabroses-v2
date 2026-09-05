@@ -24,6 +24,7 @@ export async function onRequestGet({ env, data }) {
      WHERE l.site_id = ? AND l.quantity_balance > 0
      ORDER BY l.created_at ASC`
   ).bind(siteId).all();
+  for (const l of ownStock) l.resolved_origin = l.origin_lot_id || l.id;
 
   // Material shipped TO this worker, sitting in transit, waiting for them to confirm it arrived.
   const { results: incoming } = await env.DB.prepare(

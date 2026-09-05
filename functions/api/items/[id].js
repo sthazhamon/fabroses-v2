@@ -19,6 +19,7 @@ export async function onRequestGet({ params, env }) {
      WHERE l.item_id = ? AND l.quantity_balance > 0
      ORDER BY s.site_type ASC, l.created_at ASC`
   ).bind(params.id).all();
+  for (const l of lotsBySite) l.resolved_origin = l.origin_lot_id || l.id;
 
   const { results: photos } = await env.DB.prepare(
     "SELECT * FROM item_photos WHERE item_id = ? ORDER BY uploaded_at DESC"
@@ -34,10 +35,15 @@ export async function onRequestPatch({ request, env, params, data }) {
   const existing = await env.DB.prepare("SELECT * FROM items WHERE id = ?").bind(params.id).first();
   if (!existing) return Response.json({ error: "Item not found" }, { status: 404 });
 
-  const editable = ["name", "color", "price", "cost", "description", "unit_of_measure"];
+  if (body.item_code !== undefined && body.item_code && body.item_code.trim()) {
+    const clash = await env.DB.prepare("SELECT id FROM items WHERE item_code = ? COLLATE NOCASE AND id != ?").bind(body.item_code.trim(), params.id).first();
+    if (clash) return Response.json({ error: `Item code "${body.item_code.trim()}" is already used by another item` }, { status: 400 });
+  }
+
+  const editable = ["name", "color", "price", "cost", "description", "unit_of_measure", "item_code"];
   const changes = {};
   for (const field of editable) {
-    if (body[field] !== undefined) changes[field] = body[field];
+    if (body[field] !== undefined) changes[field] = field === "item_code" ? (body[field] ? body[field].trim() : null) : body[field];
   }
   if (!Object.keys(changes).length) return Response.json({ error: "Nothing to update" }, { status: 400 });
 

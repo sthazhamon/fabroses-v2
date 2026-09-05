@@ -1,4 +1,4 @@
-import { postJournalEntry, getOrCreatePartyAccount, accountFixedId, nextId } from "./_ledger.js";
+import { postJournalEntry, getOrCreatePartyAccount, resolveCashBankAccountId, accountFixedId, nextId } from "./_ledger.js";
 
 export async function onRequestGet({ env }) {
   const { results } = await env.DB.prepare("SELECT * FROM refunds ORDER BY refund_date DESC, id DESC").all();
@@ -7,7 +7,7 @@ export async function onRequestGet({ env }) {
 
 export async function onRequestPost({ request, env, data }) {
   const body = await request.json();
-  const { sale_id, amount, reason, refund_date } = body;
+  const { sale_id, amount, reason, refund_date, account_id } = body;
   if (!sale_id || !amount) return Response.json({ error: "sale_id and amount are required" }, { status: 400 });
 
   const sale = await env.DB.prepare("SELECT * FROM sales WHERE id = ?").bind(sale_id).first();
@@ -19,6 +19,12 @@ export async function onRequestPost({ request, env, data }) {
     return Response.json({ error: `Only ${remaining.toFixed(2)} is still refundable on this sale` }, { status: 400 });
   }
 
+  let cashId;
+  if (!sale.customer_party_id) {
+    try { cashId = await resolveCashBankAccountId(env, account_id); }
+    catch (e) { return Response.json({ error: e.message }, { status: 400 }); }
+  }
+
   const id = await nextId(env, "refunds", "REF");
   const effectiveDate = refund_date || new Date().toISOString().slice(0, 10);
   await env.DB.prepare("INSERT INTO refunds (id, sale_id, customer_party_id, amount, reason, refund_date, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)")
@@ -27,7 +33,7 @@ export async function onRequestPost({ request, env, data }) {
   const refundsAccountId = await accountFixedId(env, "3100");
   const lines = [{ account_id: refundsAccountId, debit: amount }];
   if (sale.customer_party_id) lines.push({ account_id: await getOrCreatePartyAccount(env, sale.customer_party_id), credit: amount });
-  else lines.push({ account_id: await accountFixedId(env, "1000"), credit: amount });
+  else lines.push({ account_id: cashId, credit: amount });
 
   await postJournalEntry(env, { date: effectiveDate, description: reason || `Refund on ${sale_id}`, reference_type: "refund", reference_id: id, created_by: data.user?.name, lines });
 

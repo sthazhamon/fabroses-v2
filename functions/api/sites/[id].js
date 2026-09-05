@@ -1,4 +1,6 @@
-export async function onRequestPatch({ request, env, params }) {
+import { logEdits } from "../_editlog.js";
+
+export async function onRequestPatch({ request, env, params, data }) {
   const body = await request.json();
   const site = await env.DB.prepare("SELECT * FROM sites WHERE id = ?").bind(params.id).first();
   if (!site) return Response.json({ error: "Site not found" }, { status: 404 });
@@ -16,5 +18,14 @@ export async function onRequestPatch({ request, env, params }) {
     return Response.json({ ok: true });
   }
 
-  return Response.json({ error: "Nothing to update" }, { status: 400 });
+  const editable = ["name", "address", "phone", "notes"];
+  const changes = {};
+  for (const field of editable) if (body[field] !== undefined) changes[field] = body[field] || null;
+  if (!Object.keys(changes).length) return Response.json({ error: "Nothing to update" }, { status: 400 });
+  if (changes.name !== undefined && !changes.name) return Response.json({ error: "Name can't be empty" }, { status: 400 });
+
+  await logEdits(env, "site", params.id, site, changes, data?.user?.name);
+  const setClauses = Object.keys(changes).map((f) => `${f} = ?`).join(", ");
+  await env.DB.prepare(`UPDATE sites SET ${setClauses} WHERE id = ?`).bind(...Object.values(changes), params.id).run();
+  return Response.json({ ok: true });
 }

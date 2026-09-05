@@ -50,7 +50,7 @@ export async function onRequestPost({ request, env }) {
   const body = await request.json();
   const {
     item_type, name, category_id, fabric_id, work_type_id, pattern_id, design_id,
-    color, price, cost, description, unit_of_measure,
+    color, price, cost, description, unit_of_measure, item_code: userItemCode,
   } = body;
 
   if (!["raw_material", "finished_good"].includes(item_type)) {
@@ -58,11 +58,21 @@ export async function onRequestPost({ request, env }) {
   }
   if (!name) return Response.json({ error: "name is required" }, { status: 400 });
 
+  if (userItemCode && userItemCode.trim()) {
+    const clash = await env.DB.prepare("SELECT id FROM items WHERE item_code = ? COLLATE NOCASE").bind(userItemCode.trim()).first();
+    if (clash) return Response.json({ error: `Item code "${userItemCode.trim()}" is already used by another item` }, { status: 400 });
+  }
+
   const countRow = await env.DB.prepare("SELECT COUNT(*) AS c FROM items").first();
   const id = "ITM-" + String((countRow?.c || 0) + 1).padStart(6, "0");
 
-  let itemCode = null;
-  if (category_id && fabric_id && work_type_id && pattern_id) {
+  // The part number is normally whatever the user types in (their own SKU,
+  // matching what's already used on the online store) — category, fabric,
+  // work type, and pattern stay purely for catalogue filtering. Only when
+  // the user leaves it blank do we fall back to auto-generating one from
+  // that combination, so raw materials and quick entries still get a code.
+  let itemCode = userItemCode && userItemCode.trim() ? userItemCode.trim() : null;
+  if (!itemCode && category_id && fabric_id && work_type_id && pattern_id) {
     const cat = await env.DB.prepare("SELECT code FROM item_categories WHERE id = ?").bind(category_id).first();
     const fab = await env.DB.prepare("SELECT code FROM item_fabrics WHERE id = ?").bind(fabric_id).first();
     const wrk = await env.DB.prepare("SELECT code FROM item_work_types WHERE id = ?").bind(work_type_id).first();

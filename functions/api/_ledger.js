@@ -61,6 +61,19 @@ export async function accountFixedId(env, code) {
   return row.id;
 }
 
+// Resolves which cash/bank account a real money movement actually went
+// through. Every flow that used to hardcode the built-in Cash account
+// (expenses, refunds, supplier bill instant-payment, walk-in cash sales)
+// now optionally accepts an account_id and calls this instead — same
+// validation everywhere, and still defaults to Cash when nothing was
+// chosen, so nothing that doesn't pass one changes behavior.
+export async function resolveCashBankAccountId(env, accountId) {
+  if (!accountId) return accountFixedId(env, "1000");
+  const row = await env.DB.prepare("SELECT id FROM accounts WHERE id = ? AND is_cash_or_bank = 1").bind(accountId).first();
+  if (!row) throw new Error("account_id must be a cash or bank account");
+  return row.id;
+}
+
 export async function createWorkerSite(env, { name, worker_user_id }) {
   const id = await nextId(env, "sites", "SITE");
   const partyId = await nextId(env, "parties", "PTY");
